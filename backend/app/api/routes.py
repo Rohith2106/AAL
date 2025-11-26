@@ -58,8 +58,16 @@ async def process_receipt(
             raise HTTPException(status_code=400, detail="No text extracted from image")
         
         # Step 2: Data Extraction
-        structured_data = parse_receipt_text(raw_text)
+        structured_data = await parse_receipt_text(raw_text)
         structured_data["record_id"] = record_id
+        
+        # DEBUG: Log items extraction
+        items_count = len(structured_data.get("items", []))
+        logger.info(f"Extracted {items_count} items from receipt")
+        if items_count > 0:
+            logger.info(f"Items: {structured_data.get('items')[:3]}...")  # Log first 3
+        else:
+            logger.warning("No items extracted from receipt!")
         
         # Step 2.5: Classify transaction using LLM
         if not structured_data.get("category"):
@@ -157,7 +165,7 @@ async def process_multiple_receipts(
                 raise Exception("No text extracted from image")
             
             # Step 2: Data Extraction
-            structured_data = parse_receipt_text(raw_text)
+            structured_data = await parse_receipt_text(raw_text)
             structured_data["record_id"] = record_id
             
             # Step 2.5: Classify transaction
@@ -419,7 +427,8 @@ async def get_stats():
         entries = get_ledger_entries(limit=10000)
         
         total_entries = len(entries)
-        total_amount = sum(e.get("total", 0) or 0 for e in entries)
+        # Use USD totals for aggregation to handle multi-currency
+        total_amount = sum(e.get("usd_total", e.get("total", 0)) or 0 for e in entries)
         validated_count = sum(1 for e in entries if e.get("status") == "validated")
         pending_count = sum(1 for e in entries if e.get("status") == "pending")
         
@@ -430,7 +439,7 @@ async def get_stats():
             "total_entries": total_entries,
             "validated_entries": validated_count,
             "pending_entries": pending_count,
-            "total_amount": total_amount,
+            "total_amount": total_amount,  # In USD
             "unique_vendors": len(vendors),
             "average_transaction": total_amount / total_entries if total_entries > 0 else 0
         }

@@ -76,7 +76,7 @@ If unsure, choose "General Expense" with a low confidence.
         loop = asyncio.get_event_loop()
         response = await asyncio.wait_for(
             loop.run_in_executor(None, call_llm),
-            timeout=10.0
+            timeout=20.0  # Increased from 10s to 20s
         )
         
         category, confidence = _parse_llm_response(response.content)

@@ -1,78 +1,98 @@
 <template>
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-    <h2 class="text-2xl font-bold text-gray-900 mb-6">Chat with Ledger</h2>
-    
-    <!-- Chat Messages -->
-    <div class="space-y-4 mb-6 h-96 overflow-y-auto border border-gray-200 rounded-lg p-4 bg-gray-50">
-      <div
-        v-for="(message, index) in messages"
-        :key="index"
-        :class="[
-          'flex',
-          message.role === 'user' ? 'justify-end' : 'justify-start'
-        ]"
-      >
-        <div
-          :class="[
-            'max-w-3xl rounded-lg px-4 py-2',
-            message.role === 'user'
-              ? 'bg-primary-600 text-white'
-              : 'bg-white text-gray-900 border border-gray-200'
-          ]"
-        >
-          <p class="text-sm whitespace-pre-wrap">{{ message.content }}</p>
-          <div v-if="message.sources?.length" class="mt-2 pt-2 border-t border-gray-200">
-            <p class="text-xs font-medium text-gray-500 mb-1">Sources:</p>
-            <ul class="text-xs space-y-1">
-              <li v-for="(source, i) in message.sources" :key="i" class="text-gray-600">
-                • {{ source.vendor }} ({{ (source.similarity * 100).toFixed(1) }}% match)
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-      
-      <div v-if="loading" class="flex justify-start">
-        <div class="bg-white border border-gray-200 rounded-lg px-4 py-2">
-          <div class="flex space-x-2">
-            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
-            <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
-          </div>
-        </div>
+  <div class="space-y-8 h-full flex flex-col">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 flex-shrink-0">
+      <div>
+        <h2 class="text-xl lg:text-2xl font-bold text-gray-800">AI Assistant</h2>
+        <p class="text-sm lg:text-base text-gray-500 mt-1">Ask questions about your financial data</p>
       </div>
     </div>
 
-    <!-- Chat Input -->
-    <form @submit.prevent="sendMessage" class="flex space-x-4">
-      <input
-        v-model="inputMessage"
-        type="text"
-        placeholder="Ask about receipts, invoices, or ledger entries..."
-        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all flex-1"
-        :disabled="loading"
-      />
-      <button
-        type="submit"
-        :disabled="loading || !inputMessage.trim()"
-        class="px-4 py-2 rounded-lg font-medium transition-colors duration-200 bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        Send
-      </button>
-    </form>
-
-    <!-- Example Questions -->
-    <div class="mt-6">
-      <p class="text-sm font-medium text-gray-500 mb-2">Example Questions:</p>
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-for="example in exampleQuestions"
-          :key="example"
-          @click="inputMessage = example"
-          class="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200 transition-colors"
+    <!-- Chat Area -->
+    <div class="bg-white/40 backdrop-blur-md rounded-3xl border border-white/40 shadow-xl shadow-gray-200/20 flex-1 flex flex-col overflow-hidden relative">
+      <!-- Messages -->
+      <div class="flex-1 overflow-y-auto p-4 lg:p-6 space-y-4 lg:space-y-6 scroll-smooth">
+        <div
+          v-for="(message, index) in messages"
+          :key="index"
+          :class="[
+            'flex w-full',
+            message.role === 'user' ? 'justify-end' : 'justify-start'
+          ]"
         >
-          {{ example }}
-        </button>
+          <div
+            :class="[
+              'max-w-[95%] lg:max-w-[80%] rounded-2xl px-4 lg:px-6 py-3 lg:py-4 shadow-sm',
+              message.role === 'user'
+                ? 'bg-gray-900 text-white rounded-tr-sm'
+                : 'bg-white/80 backdrop-blur-sm text-gray-800 border border-white/50 rounded-tl-sm'
+            ]"
+          >
+            <p class="text-sm leading-relaxed whitespace-pre-wrap">{{ message.content }}</p>
+            
+            <!-- Sources -->
+            <div v-if="message.sources?.length" class="mt-4 pt-4 border-t border-gray-200/20">
+              <p class="text-xs font-bold uppercase tracking-wider opacity-70 mb-2">Sources</p>
+              <div class="space-y-2">
+                <div 
+                  v-for="(source, i) in message.sources" 
+                  :key="i" 
+                  class="bg-black/5 rounded-lg p-2 text-xs flex justify-between items-center"
+                >
+                  <span class="font-medium truncate max-w-[70%]">{{ source.vendor }}</span>
+                  <span class="opacity-70">{{ (source.similarity * 100).toFixed(0) }}% match</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Loading Indicator -->
+        <div v-if="loading" class="flex justify-start w-full">
+          <div class="bg-white/80 backdrop-blur-sm border border-white/50 rounded-2xl rounded-tl-sm px-6 py-4 shadow-sm">
+            <div class="flex space-x-2">
+              <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+              <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+              <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Area -->
+      <div class="p-4 lg:p-6 bg-white/40 backdrop-blur-md border-t border-white/40">
+        <!-- Example Questions -->
+        <div v-if="messages.length < 3" class="mb-6 overflow-x-auto pb-2">
+          <div class="flex gap-2">
+            <button
+              v-for="example in exampleQuestions"
+              :key="example"
+              @click="inputMessage = example"
+              class="whitespace-nowrap px-4 py-2 bg-white/60 hover:bg-white border border-white/50 rounded-xl text-xs font-medium text-gray-600 transition-all shadow-sm hover:shadow-md"
+            >
+              {{ example }}
+            </button>
+          </div>
+        </div>
+
+        <form @submit.prevent="sendMessage" class="relative">
+          <input
+            v-model="inputMessage"
+            type="text"
+            placeholder="Ask about receipts, invoices, or ledger entries..."
+            class="w-full pl-6 pr-14 py-4 bg-white/80 border border-white/50 rounded-2xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all shadow-inner placeholder-gray-400"
+            :disabled="loading"
+          />
+          <button
+            type="submit"
+            :disabled="loading || !inputMessage.trim()"
+            class="absolute right-2 top-2 p-2 bg-gray-900 text-white rounded-xl hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-gray-900/20"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </button>
+        </form>
       </div>
     </div>
   </div>

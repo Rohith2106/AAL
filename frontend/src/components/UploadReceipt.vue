@@ -1,204 +1,226 @@
 <template>
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-    <h2 class="text-2xl font-bold text-gray-900 mb-6">Upload Receipt/Invoice</h2>
-    
-    <!-- Upload Area -->
-    <div
-      @drop.prevent="handleDrop"
-      @dragover.prevent
-      @dragenter.prevent
-      :class="[
-        'border-2 border-dashed rounded-xl p-12 text-center transition-colors',
-        isDragging ? 'border-primary-500 bg-primary-50' : 'border-gray-300 bg-gray-50'
-      ]"
-    >
-      <input
-        ref="fileInput"
-        type="file"
-        accept="image/*,.pdf"
-        multiple
-        @change="handleFileSelect"
-        class="hidden"
-      />
-      
-      <div v-if="!processing && !batchResults">
-        <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-        </svg>
-        <p class="text-lg font-medium text-gray-700 mb-2">
-          Drag and drop your receipts or invoices here
-        </p>
-        <p class="text-sm text-gray-500 mb-4">or</p>
-        <button @click="$refs.fileInput.click()" class="px-4 py-2 rounded-lg font-medium transition-colors duration-200 bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800">
-          Browse Files
-        </button>
-        <p class="text-xs text-gray-400 mt-4">Supports: JPG, PNG, PDF (Multiple files allowed)</p>
-      </div>
-      
-      <!-- Processing -->
-      <div v-if="processing" class="space-y-4">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-        <p class="text-lg font-medium text-gray-700">{{ processingMessage }}</p>
-        <div class="w-full bg-gray-200 rounded-full h-2">
-          <div class="bg-primary-600 h-2 rounded-full transition-all duration-300" :style="{ width: progress + '%' }"></div>
-        </div>
-        <p v-if="processingFileCount > 0" class="text-sm text-gray-500">
-          Processing {{ currentFileIndex }} of {{ processingFileCount }} files...
-        </p>
+  <div class="space-y-8">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div>
+        <h2 class="text-xl lg:text-2xl font-bold text-gray-800">Upload Receipt</h2>
+        <p class="text-sm lg:text-base text-gray-500 mt-1">Drag and drop your files to process them automatically</p>
       </div>
     </div>
 
-    <!-- OCR Engine Selection -->
-    <div v-if="!processing && !batchResults" class="mt-6">
-      <label class="block text-sm font-medium text-gray-700 mb-2">OCR Engine</label>
-      <select v-model="ocrEngine" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all">
-        <option value="easyocr">EasyOCR (Recommended)</option>
-        <option value="tesseract">Tesseract OCR</option>
-      </select>
+    <!-- Upload Area -->
+    <div class="bg-white/40 backdrop-blur-md rounded-3xl border border-white/40 p-8 shadow-xl shadow-gray-200/20">
+      <div
+        @drop.prevent="handleDrop"
+        @dragover.prevent
+        @dragenter.prevent
+        :class="[
+          'border-3 border-dashed rounded-2xl p-8 lg:p-16 text-center transition-all duration-300 group cursor-pointer',
+          isDragging 
+            ? 'border-primary-500 bg-primary-50/50 scale-[1.02]' 
+            : 'border-gray-300 hover:border-primary-400 hover:bg-white/50'
+        ]"
+        @click="$refs.fileInput.click()"
+      >
+        <input
+          ref="fileInput"
+          type="file"
+          accept="image/*,.pdf"
+          multiple
+          @change="handleFileSelect"
+          class="hidden"
+        />
+        
+        <div v-if="!processing && !batchResults" class="space-y-4">
+          <div class="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto group-hover:bg-primary-50 transition-colors duration-300">
+            <svg class="w-10 h-10 text-gray-400 group-hover:text-primary-500 transition-colors duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+          </div>
+          <div>
+            <p class="text-xl font-bold text-gray-700 group-hover:text-primary-600 transition-colors">
+              Drop your receipts here
+            </p>
+            <p class="text-gray-500 mt-2">or click to browse files</p>
+          </div>
+          <div class="flex items-center justify-center gap-2 text-xs text-gray-400 uppercase tracking-wider font-medium mt-4">
+            <span class="px-2 py-1 bg-gray-100 rounded">JPG</span>
+            <span class="px-2 py-1 bg-gray-100 rounded">PNG</span>
+            <span class="px-2 py-1 bg-gray-100 rounded">PDF</span>
+          </div>
+        </div>
+        
+        <!-- Processing -->
+        <div v-if="processing" class="space-y-6">
+          <div class="relative w-24 h-24 mx-auto">
+            <div class="absolute inset-0 border-4 border-gray-200 rounded-full"></div>
+            <div class="absolute inset-0 border-4 border-primary-600 rounded-full border-t-transparent animate-spin"></div>
+          </div>
+          <div>
+            <p class="text-xl font-bold text-gray-800">{{ processingMessage }}</p>
+            <p v-if="processingFileCount > 0" class="text-gray-500 mt-2">
+              Processing {{ currentFileIndex }} of {{ processingFileCount }} files...
+            </p>
+          </div>
+          <div class="w-full max-w-md mx-auto bg-gray-100 rounded-full h-3 overflow-hidden">
+            <div class="bg-primary-600 h-full rounded-full transition-all duration-500 ease-out" :style="{ width: progress + '%' }"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OCR Engine Selection -->
+      <div v-if="!processing && !batchResults" class="mt-8 flex justify-center">
+        <div class="inline-flex bg-gray-100/50 p-1 rounded-xl border border-gray-200/50">
+          <button
+            @click="ocrEngine = 'easyocr'"
+            :class="[
+              'px-6 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+              ocrEngine === 'easyocr'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            ]"
+          >
+            EasyOCR (Recommended)
+          </button>
+          <button
+            @click="ocrEngine = 'tesseract'"
+            :class="[
+              'px-6 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+              ocrEngine === 'tesseract'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            ]"
+          >
+            Tesseract
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Batch Results -->
-    <div v-if="batchResults" class="mt-6 space-y-6">
-      <div class="border-t pt-6">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold text-gray-900">Batch Processing Results</h3>
-          <div class="flex items-center space-x-4">
-            <span class="text-sm text-green-600 font-medium">✓ {{ batchResults.successful }} successful</span>
-            <span v-if="batchResults.failed > 0" class="text-sm text-red-600 font-medium">✗ {{ batchResults.failed }} failed</span>
+    <div v-if="batchResults" class="bg-white/40 backdrop-blur-md rounded-3xl border border-white/40 p-8 shadow-xl shadow-gray-200/20">
+      <div class="flex items-center justify-between mb-6">
+        <h3 class="text-xl font-bold text-gray-900">Processing Results</h3>
+        <div class="flex gap-3">
+          <span class="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-sm font-medium">✓ {{ batchResults.successful }} successful</span>
+          <span v-if="batchResults.failed > 0" class="px-3 py-1 bg-red-100 text-red-700 rounded-lg text-sm font-medium">✗ {{ batchResults.failed }} failed</span>
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <div
+          v-for="(result, index) in batchResults.results"
+          :key="result.record_id"
+          class="bg-white/60 rounded-xl p-4 border border-white/50 hover:shadow-md transition-all duration-200"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
+              <div :class="[
+                'w-10 h-10 rounded-full flex items-center justify-center',
+                result.status === 'validated' ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'
+              ]">
+                <svg v-if="result.status === 'validated'" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                <svg v-else class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+              </div>
+              <div>
+                <h4 class="font-bold text-gray-900">{{ result.structured_data?.vendor || 'Unknown Vendor' }}</h4>
+                <p class="text-sm text-gray-500">{{ result.structured_data?.date || 'No date' }} • {{ result.structured_data?.category || 'Uncategorized' }}</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <p class="text-lg font-bold text-gray-900">${{ (result.structured_data?.total || 0).toFixed(2) }}</p>
+              <p class="text-xs text-gray-500 font-medium">Confidence: {{ (result.validation?.confidence * 100).toFixed(0) }}%</p>
+            </div>
           </div>
         </div>
+      </div>
 
-        <!-- Results List -->
-        <div class="space-y-4">
-          <div
-            v-for="(result, index) in batchResults.results"
-            :key="result.record_id"
-            class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
-          >
-            <div class="flex items-start justify-between">
-              <div class="flex-1">
-                <div class="flex items-center space-x-3 mb-2">
-                  <span
-                    :class="[
-                      'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                      result.status === 'validated'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-yellow-100 text-yellow-800'
-                    ]"
-                  >
-                    {{ result.status === 'validated' ? '✓ Validated' : '⚠ Pending' }}
-                  </span>
-                  <span class="text-sm font-medium text-gray-900">{{ result.structured_data?.vendor || 'Unknown Vendor' }}</span>
-                  <span class="text-sm text-gray-500">{{ result.structured_data?.date || 'N/A' }}</span>
-                </div>
-                <div class="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <span class="text-gray-500">Total:</span>
-                    <span class="font-semibold text-gray-900 ml-2">${{ (result.structured_data?.total || 0).toFixed(2) }}</span>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Category:</span>
-                    <span class="text-gray-900 ml-2">{{ result.structured_data?.category || 'N/A' }}</span>
-                  </div>
-                  <div>
-                    <span class="text-gray-500">Confidence:</span>
-                    <span class="text-gray-900 ml-2">{{ (result.validation?.confidence * 100).toFixed(1) }}%</span>
-                  </div>
-                </div>
-              </div>
+      <div class="flex justify-center mt-8">
+        <button @click="reset" class="px-8 py-3 rounded-xl font-bold transition-all duration-200 bg-gray-900 text-white hover:bg-gray-800 shadow-lg shadow-gray-900/20 hover:scale-[1.02]">
+          Upload More Files
+        </button>
+      </div>
+    </div>
+
+    <!-- Single Result -->
+    <div v-if="result && !batchResults" class="bg-white/40 backdrop-blur-md rounded-3xl border border-white/40 p-8 shadow-xl shadow-gray-200/20">
+      <div class="flex items-center justify-between mb-8">
+        <h3 class="text-xl font-bold text-gray-900">Processing Result</h3>
+        <span
+          :class="[
+            'px-4 py-2 rounded-xl text-sm font-bold',
+            result.status === 'validated'
+              ? 'bg-green-100 text-green-700'
+              : 'bg-yellow-100 text-yellow-700'
+          ]"
+        >
+          {{ result.status === 'validated' ? '✓ Validated' : '⚠ Pending Review' }}
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+        <!-- Receipt Preview Card -->
+        <div class="bg-white/60 rounded-2xl p-6 border border-white/50 shadow-sm">
+          <div class="flex justify-between items-start mb-6">
+            <div>
+              <p class="text-sm font-bold text-gray-400 uppercase tracking-wider">Vendor</p>
+              <h4 class="text-2xl font-bold text-gray-900 mt-1">{{ result.structured_data?.vendor || 'N/A' }}</h4>
+            </div>
+            <div class="text-right">
+              <p class="text-sm font-bold text-gray-400 uppercase tracking-wider">Total</p>
+              <h4 class="text-2xl font-bold text-gray-900 mt-1">${{ (result.structured_data?.total?.toFixed(2) || '0.00') }}</h4>
+            </div>
+          </div>
+          
+          <div class="space-y-4">
+            <div class="flex justify-between py-3 border-b border-gray-100">
+              <span class="text-gray-500">Date</span>
+              <span class="font-medium text-gray-900">{{ result.structured_data?.date || 'N/A' }}</span>
+            </div>
+            <div class="flex justify-between py-3 border-b border-gray-100">
+              <span class="text-gray-500">Category</span>
+              <span class="font-medium text-gray-900">{{ result.structured_data?.category || 'N/A' }}</span>
+            </div>
+            <div class="flex justify-between py-3 border-b border-gray-100">
+              <span class="text-gray-500">Confidence</span>
+              <span class="font-medium text-gray-900">{{ (result.validation?.confidence * 100).toFixed(1) }}%</span>
             </div>
           </div>
         </div>
 
-        <!-- Actions -->
-        <div class="flex space-x-4 pt-4 border-t mt-6">
-          <button @click="reset" class="px-4 py-2 rounded-lg font-medium transition-colors duration-200 bg-gray-200 text-gray-800 hover:bg-gray-300 active:bg-gray-400">
-            Upload More
-          </button>
+        <!-- Analysis Card -->
+        <div class="space-y-6">
+          <div v-if="result.validation?.issues?.length" class="bg-yellow-50/50 rounded-2xl p-6 border border-yellow-100">
+            <h5 class="font-bold text-yellow-800 mb-3 flex items-center gap-2">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+              Validation Issues
+            </h5>
+            <ul class="space-y-2">
+              <li v-for="issue in result.validation.issues" :key="issue" class="text-sm text-yellow-700 flex items-start gap-2">
+                <span class="mt-1.5 w-1.5 h-1.5 bg-yellow-400 rounded-full flex-shrink-0"></span>
+                {{ issue }}
+              </li>
+            </ul>
+          </div>
+
+          <div class="bg-white/60 rounded-2xl p-6 border border-white/50 shadow-sm">
+            <h5 class="font-bold text-gray-900 mb-3">AI Analysis</h5>
+            <p class="text-gray-600 text-sm leading-relaxed">{{ result.explanation }}</p>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Single Result (for backward compatibility) -->
-    <div v-if="result && !batchResults" class="mt-6 space-y-6">
-      <div class="border-t pt-6">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4">Processing Results</h3>
-        
-        <!-- Status Badge -->
-        <div class="mb-4">
-          <span
-            :class="[
-              'inline-flex items-center px-3 py-1 rounded-full text-sm font-medium',
-              result.status === 'validated'
-                ? 'bg-green-100 text-green-800'
-                : 'bg-yellow-100 text-yellow-800'
-            ]"
-          >
-            {{ result.status === 'validated' ? '✓ Validated' : '⚠ Pending Review' }}
-          </span>
-        </div>
-
-        <!-- Structured Data -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label class="text-sm font-medium text-gray-500">Vendor</label>
-            <p class="text-base text-gray-900">{{ result.structured_data?.vendor || 'N/A' }}</p>
-          </div>
-          <div>
-            <label class="text-sm font-medium text-gray-500">Date</label>
-            <p class="text-base text-gray-900">{{ result.structured_data?.date || 'N/A' }}</p>
-          </div>
-          <div>
-            <label class="text-sm font-medium text-gray-500">Total</label>
-            <p class="text-base text-gray-900 font-semibold">${{ (result.structured_data?.total?.toFixed(2) || '0.00') }}</p>
-          </div>
-          <div>
-            <label class="text-sm font-medium text-gray-500">Category</label>
-            <p class="text-base text-gray-900">{{ result.structured_data?.category || 'N/A' }}</p>
-          </div>
-          <div>
-            <label class="text-sm font-medium text-gray-500">Confidence</label>
-            <p class="text-base text-gray-900">{{ (result.validation?.confidence * 100).toFixed(1) }}%</p>
-          </div>
-        </div>
-
-        <!-- Validation Issues -->
-        <div v-if="result.validation?.issues?.length" class="mb-4">
-          <label class="text-sm font-medium text-gray-500 mb-2 block">Issues</label>
-          <ul class="list-disc list-inside space-y-1">
-            <li v-for="issue in result.validation.issues" :key="issue" class="text-sm text-yellow-700">
-              {{ issue }}
-            </li>
-          </ul>
-        </div>
-
-        <!-- Explanation -->
-        <div class="mb-4">
-          <label class="text-sm font-medium text-gray-500 mb-2 block">Explanation</label>
-          <p class="text-sm text-gray-700 bg-gray-50 p-4 rounded-lg">{{ result.explanation }}</p>
-        </div>
-
-        <!-- Recommendations -->
-        <div v-if="result.recommendations?.length" class="mb-4">
-          <label class="text-sm font-medium text-gray-500 mb-2 block">Recommendations</label>
-          <ul class="list-disc list-inside space-y-1">
-            <li v-for="rec in result.recommendations" :key="rec" class="text-sm text-gray-700">
-              {{ rec }}
-            </li>
-          </ul>
-        </div>
-
-        <!-- Actions -->
-        <div class="flex space-x-4 pt-4 border-t">
-          <button @click="reset" class="px-4 py-2 rounded-lg font-medium transition-colors duration-200 bg-gray-200 text-gray-800 hover:bg-gray-300 active:bg-gray-400">Upload Another</button>
-          <button
-            v-if="result.status !== 'validated'"
-            @click="approveEntry"
-            class="px-4 py-2 rounded-lg font-medium transition-colors duration-200 bg-primary-600 text-white hover:bg-primary-700 active:bg-primary-800"
-          >
-            Approve & Add to Ledger
-          </button>
-        </div>
+      <div class="flex gap-4 mt-8 pt-8 border-t border-gray-200/50">
+        <button @click="reset" class="flex-1 px-6 py-3 rounded-xl font-medium transition-all duration-200 bg-gray-100 hover:bg-gray-200 text-gray-700">
+          Upload Another
+        </button>
+        <button
+          v-if="result.status !== 'validated'"
+          @click="approveEntry"
+          class="flex-1 px-6 py-3 rounded-xl font-bold transition-all duration-200 bg-gray-900 text-white hover:bg-gray-800 shadow-lg shadow-gray-900/20"
+        >
+          Approve & Add to Ledger
+        </button>
       </div>
     </div>
   </div>

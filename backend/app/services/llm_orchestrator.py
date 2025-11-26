@@ -10,33 +10,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Initialize LLM (lazy loading)
-_llm = None
-
-
-def get_llm():
-    """Lazy load LLM"""
-    global _llm
-    if _llm is None:
-        try:
-            _llm = ChatGoogleGenerativeAI(
-                model=settings.LLM_MODEL,
-                google_api_key=settings.GOOGLE_API_KEY,
-                temperature=settings.LLM_TEMPERATURE,
-                max_tokens=settings.LLM_MAX_TOKENS
-            )
-            logger.info(f"Initialized LLM with model: {settings.LLM_MODEL}")
-        except Exception as e:
-            logger.error(f"Error initializing LLM: {e}")
-            # Fallback to gemini-1.5-pro
-            _llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-pro",
-                google_api_key=settings.GOOGLE_API_KEY,
-                temperature=settings.LLM_TEMPERATURE,
-                max_tokens=settings.LLM_MAX_TOKENS
-            )
-            logger.info("Using fallback model: gemini-1.5-pro")
-    return _llm
+from app.core.llm import get_llm
 
 
 async def validate_record(
@@ -99,7 +73,21 @@ Be thorough and precise. Flag any potential issues."""
         elif "```" in response_text:
             response_text = response_text.split("```")[1].split("```")[0].strip()
         
-        validation_data = json.loads(response_text)
+        try:
+            validation_data = json.loads(response_text)
+        except json.JSONDecodeError as json_err:
+            logger.error(f"JSON parsing failed: {json_err}")
+            logger.debug(f"Malformed JSON response: {response_text[:500]}...")
+            # Try to extract JSON using regex as fallback
+            import re
+            json_match = re.search(r'\{[^}]*"status"[^}]*\}', response_text, re.DOTALL)
+            if json_match:
+                try:
+                    validation_data = json.loads(json_match.group(0))
+                except:
+                    raise ValueError("Could not parse JSON from LLM response")
+            else:
+                raise ValueError("Could not find valid JSON in LLM response")
         
         return {
             "status": validation_data.get("status", "needs_review"),
@@ -108,6 +96,14 @@ Be thorough and precise. Flag any potential issues."""
             "reasoning": validation_data.get("reasoning", "")
         }
     
+    except json.JSONDecodeError as json_err:
+        logger.error(f"JSON parsing error in validation: {json_err}", exc_info=True)
+        return {
+            "status": "needs_review",
+            "issues": [f"JSON parsing error: {str(json_err)}"],
+            "confidence": 0.0,
+            "reasoning": "LLM returned malformed JSON response"
+        }
     except asyncio.TimeoutError:
         logger.error("LLM validation timed out after 30 seconds")
         return {

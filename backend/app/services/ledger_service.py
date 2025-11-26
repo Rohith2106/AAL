@@ -1,5 +1,5 @@
-from sqlalchemy.orm import Session
-from app.db.sql import SessionLocal, LedgerEntry
+from sqlalchemy.orm import Session, joinedload
+from app.db.sql import SessionLocal, LedgerEntry, LedgerItem
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
@@ -50,6 +50,9 @@ def create_ledger_entry(
             amount=structured_data.get("subtotal") or structured_data.get("total") or 0.0,
             tax=structured_data.get("tax"),
             total=structured_data.get("total") or structured_data.get("subtotal") or 0.0,
+            currency=structured_data.get("currency", "USD"),
+            exchange_rate=structured_data.get("exchange_rate", 1.0),
+            usd_total=structured_data.get("usd_equivalent", structured_data.get("total", 0.0)),
             invoice_number=structured_data.get("invoice_number"),
             description=structured_data.get("description") or f"Transaction from {structured_data.get('vendor', 'Unknown')}",
             category=structured_data.get("category"),
@@ -59,6 +62,23 @@ def create_ledger_entry(
             validation_issues=orchestration_result["validation_result"].get("issues", []),
             reasoning_trace=orchestration_result.get("reasoning_trace")
         )
+        # Add items if present
+        items_to_add = structured_data.get("items", [])
+        logger.info(f"Processing {len(items_to_add)} items for ledger entry")
+        
+        if items_to_add:
+            for idx, item_data in enumerate(items_to_add):
+                item = LedgerItem(
+                    name=item_data.get("name"),
+                    quantity=item_data.get("quantity", 1),
+                    unit_price=item_data.get("unit_price", 0.0),
+                    line_total=item_data.get("line_total", 0.0)
+                )
+                entry.items.append(item)
+                logger.info(f"Added item {idx + 1}: {item.name} - {item.quantity} x ${item.unit_price}")
+        else:
+            logger.warning(f"No items in structured_data for record_id: {record_id}")
+        
         db.add(entry)
         db.commit()
         db.refresh(entry)
@@ -99,6 +119,9 @@ def get_ledger_entries(
                 "amount": entry.amount,
                 "tax": entry.tax,
                 "total": entry.total,
+                "currency": entry.currency,
+                "exchange_rate": entry.exchange_rate,
+                "usd_total": entry.usd_total,
                 "invoice_number": entry.invoice_number,
                 "description": entry.description,
                 "category": entry.category,
@@ -116,12 +139,36 @@ def get_ledger_entries(
 
 
 def get_ledger_entry(record_id: str) -> Optional[Dict[str, Any]]:
-    """Get single ledger entry by record_id"""
+    """Get single ledger entry by record_id with eager loading of items"""
     db = SessionLocal()
     try:
-        entry = db.query(LedgerEntry).filter(LedgerEntry.record_id == record_id).first()
+        # Use joinedload to eagerly load items relationship
+        entry = db.query(LedgerEntry).options(joinedload(LedgerEntry.items)).filter(
+            LedgerEntry.record_id == record_id
+        ).first()
+        
         if not entry:
+            logger.warning(f"Entry not found for record_id: {record_id}")
             return None
+        
+        # DEBUG: Log items count
+        items_count = len(entry.items)
+        logger.info(f"Found entry {entry.id} with {items_count} items")
+        if items_count > 0:
+            logger.info(f"First item: {entry.items[0].name} x{entry.items[0].quantity} = ${entry.items[0].line_total}")
+        
+        items_list = [
+            {
+                "id": item.id,
+                "name": item.name,
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+                "line_total": item.line_total
+            }
+            for item in entry.items
+        ]
+        
+        logger.info(f"Returning {len(items_list)} items in response")
         
         return {
             "id": entry.id,
@@ -131,6 +178,9 @@ def get_ledger_entry(record_id: str) -> Optional[Dict[str, Any]]:
             "amount": entry.amount,
             "tax": entry.tax,
             "total": entry.total,
+            "currency": entry.currency,
+            "exchange_rate": entry.exchange_rate,
+            "usd_total": entry.usd_total,
             "invoice_number": entry.invoice_number,
             "description": entry.description,
             "category": entry.category,
@@ -140,7 +190,8 @@ def get_ledger_entry(record_id: str) -> Optional[Dict[str, Any]]:
             "validation_issues": format_validation_issues(entry.validation_issues),
             "reasoning_trace": entry.reasoning_trace,
             "created_at": entry.created_at.isoformat() if entry.created_at else None,
-            "updated_at": entry.updated_at.isoformat() if entry.updated_at else None
+            "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
+            "items": items_list
         }
     finally:
         db.close()

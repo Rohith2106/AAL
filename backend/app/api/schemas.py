@@ -28,6 +28,17 @@ class ProcessMultipleReceiptsResponse(BaseModel):
     results: List[ProcessReceiptResponse]
 
 
+class LedgerItemSchema(BaseModel):
+    id: int
+    name: str
+    quantity: int
+    unit_price: float
+    line_total: float
+
+    class Config:
+        from_attributes = True
+
+
 class LedgerEntryResponse(BaseModel):
     id: int
     record_id: str
@@ -36,6 +47,9 @@ class LedgerEntryResponse(BaseModel):
     amount: Optional[float]
     tax: Optional[float]
     total: Optional[float]
+    currency: Optional[str] = "USD"
+    exchange_rate: Optional[float] = 1.0
+    usd_total: Optional[float]
     invoice_number: Optional[str]
     description: Optional[str]
     category: Optional[str]
@@ -43,8 +57,13 @@ class LedgerEntryResponse(BaseModel):
     status: str
     validation_confidence: Optional[float]
     validation_issues: Optional[List[Union[str, Dict[str, Any]]]]
+    reasoning_trace: Optional[Dict[str, Any]] = None
     created_at: Optional[str]
     updated_at: Optional[str]
+    items: List[LedgerItemSchema] = []
+
+    class Config:
+        from_attributes = True
 
 
 class ChatMessage(BaseModel):
