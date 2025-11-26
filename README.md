@@ -100,7 +100,7 @@ cp .env.example .env
 GOOGLE_API_KEY=your_google_api_key_here
 MONGODB_URL=mongodb://localhost:27017
 MONGODB_DB_NAME=accounting_automation
-DATABASE_URL=mysql+pymysql://root:1234@localhost:3306/ledger_db
+DATABASE_URL=mysql+pymysql://root:<password>@localhost:3306/ledger_db
 API_HOST=0.0.0.0
 API_PORT=8000
 CORS_ORIGINS=http://localhost:5173
@@ -129,9 +129,7 @@ npm install
 ```
 
 3. Create `.env` file:
-```bash
-cp .env.example .env
-```
+
 
 4. Configure API URL in `.env`:
 ```env
