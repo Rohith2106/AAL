@@ -9,16 +9,31 @@ import logging
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 # Initialize EasyOCR reader (lazy loading)
 _easyocr_reader = None
 
 
 def get_easyocr_reader():
-    """Lazy load EasyOCR reader"""
+    """Lazy load EasyOCR reader with GPU support"""
     global _easyocr_reader
     if _easyocr_reader is None:
-        _easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+        # Check if CUDA is available for GPU acceleration
+        try:
+            import torch
+            gpu_available = torch.cuda.is_available()
+            if gpu_available:
+                logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
+                logger.info(f"CUDA version: {torch.version.cuda}")
+            else:
+                logger.info("No GPU detected, using CPU for OCR")
+        except ImportError:
+            gpu_available = False
+            logger.warning("PyTorch not found, using CPU for OCR")
+        
+        _easyocr_reader = easyocr.Reader(['en'], gpu=gpu_available, verbose=False)
+        logger.info(f"EasyOCR initialized with GPU={'enabled' if gpu_available else 'disabled'}")
     return _easyocr_reader
 
 
