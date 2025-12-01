@@ -57,11 +57,35 @@
             <div class="absolute inset-0 border-4 border-primary-600 rounded-full border-t-transparent animate-spin"></div>
           </div>
           <div>
-            <p class="text-xl font-bold text-gray-800">{{ processingMessage }}</p>
+            <p class="text-xl font-bold text-gray-800">{{ currentLogMessage || processingMessage }}</p>
             <p v-if="processingFileCount > 0" class="text-gray-500 mt-2">
               Processing {{ currentFileIndex }} of {{ processingFileCount }} files...
             </p>
           </div>
+          
+          <!-- Log Messages -->
+          <div v-if="logMessages.length > 0" class="w-full max-w-2xl mx-auto bg-gray-900/90 rounded-xl p-4 max-h-64 overflow-y-auto border border-gray-700/50">
+            <div class="space-y-1">
+              <div
+                v-for="(log, index) in logMessages"
+                :key="index"
+                :class="[
+                  'text-xs font-mono px-3 py-2 rounded-lg transition-all',
+                  log.level === 'ERROR' ? 'text-red-300 bg-red-900/30 border border-red-800/50' :
+                  log.level === 'WARNING' ? 'text-yellow-300 bg-yellow-900/30 border border-yellow-800/50' :
+                  'text-green-300 bg-green-900/20 border border-green-800/30'
+                ]"
+              >
+                <div class="flex items-start gap-2">
+                  <span class="text-gray-500 text-[10px] mt-0.5 flex-shrink-0">
+                    {{ log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '' }}
+                  </span>
+                  <span class="flex-1 break-words">{{ log.message || log.raw_message || '' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <div class="w-full max-w-md mx-auto bg-gray-100 rounded-full h-3 overflow-hidden">
             <div class="bg-primary-600 h-full rounded-full transition-all duration-500 ease-out" :style="{ width: progress + '%' }"></div>
           </div>
@@ -242,6 +266,10 @@ const batchResults = ref(null)
 const ocrEngine = ref('easyocr')
 const processingFileCount = ref(0)
 const currentFileIndex = ref(0)
+const logMessages = ref([])
+const currentLogMessage = ref('')
+const currentRecordId = ref(null)
+const eventSource = ref(null)
 
 const handleDrop = (e) => {
   isDragging.value = false
@@ -258,6 +286,70 @@ const handleFileSelect = (e) => {
   }
 }
 
+const connectToLogStream = (recordId) => {
+  // Close existing connection if any
+  if (eventSource.value) {
+    eventSource.value.close()
+  }
+  
+  logMessages.value = []
+  currentRecordId.value = recordId
+  
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
+  eventSource.value = new EventSource(`${API_BASE_URL}/process-receipt/${recordId}/logs`)
+  
+  eventSource.value.onmessage = (event) => {
+    try {
+      const logEntry = JSON.parse(event.data)
+      
+      // Skip heartbeat messages
+      if (logEntry.type === 'heartbeat') {
+        return
+      }
+      
+      // Extract meaningful message from log
+      const message = logEntry.message || logEntry.raw_message || ''
+      
+      // Update current log message (show last meaningful log)
+      if (message) {
+        // Use the clean message if available, otherwise extract from raw
+        if (logEntry.message) {
+          currentLogMessage.value = logEntry.message
+        } else {
+          // Extract the actual log content after the logger name
+          const parts = message.split(':')
+          if (parts.length > 2) {
+            currentLogMessage.value = parts.slice(2).join(':').trim()
+          } else {
+            currentLogMessage.value = message
+          }
+        }
+      }
+      
+      // Add to log messages list (keep last 50)
+      logMessages.value.push(logEntry)
+      if (logMessages.value.length > 50) {
+        logMessages.value.shift()
+      }
+      
+      // Auto-scroll to bottom
+      setTimeout(() => {
+        const logContainer = document.querySelector('.overflow-y-auto')
+        if (logContainer) {
+          logContainer.scrollTop = logContainer.scrollHeight
+        }
+      }, 100)
+    } catch (e) {
+      console.error('Error parsing log entry:', e)
+    }
+  }
+  
+  eventSource.value.onerror = (error) => {
+    console.error('EventSource error:', error)
+    // Don't close on error - might be temporary
+  }
+}
+
 const processFiles = async (files) => {
   if (files.length === 0) return
 
@@ -266,29 +358,38 @@ const processFiles = async (files) => {
   currentFileIndex.value = 0
   processingMessage.value = files.length === 1 ? 'Processing file...' : `Processing ${files.length} files...`
   progress.value = 10
+  logMessages.value = []
+  currentLogMessage.value = ''
 
   try {
     if (files.length === 1) {
       // Single file - use single endpoint
-      processingMessage.value = 'Extracting text with OCR...'
-      progress.value = 20
-
-      processingMessage.value = 'Structuring data...'
-      progress.value = 40
-
-      processingMessage.value = 'Checking for duplicates...'
-      progress.value = 60
-
-      processingMessage.value = 'Validating with LLM...'
-      progress.value = 80
-
-      const response = await api.processReceipt(files[0], ocrEngine.value)
+      // Generate record_id first to connect to logs
+      const recordId = `record_${Date.now().toString(36)}${Math.random().toString(36).substr(2, 9)}`
+      currentRecordId.value = recordId
+      
+      // Connect to log stream BEFORE processing starts
+      connectToLogStream(recordId)
+      
+      // Small delay to ensure connection is established
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // Start processing with the record_id
+      const response = await api.processReceipt(files[0], ocrEngine.value, recordId)
       result.value = response.data
       batchResults.value = null
+      
       progress.value = 100
-
       processingMessage.value = 'Complete!'
       emit('receipt-processed', result.value)
+      
+      // Close log stream after a delay
+      setTimeout(() => {
+        if (eventSource.value) {
+          eventSource.value.close()
+          eventSource.value = null
+        }
+      }, 2000)
     } else {
       // Multiple files - use batch endpoint
       processingMessage.value = `Processing ${files.length} files in batch...`
@@ -305,6 +406,11 @@ const processFiles = async (files) => {
 
     setTimeout(() => {
       processing.value = false
+      // Close log stream
+      if (eventSource.value) {
+        eventSource.value.close()
+        eventSource.value = null
+      }
     }, 500)
   } catch (error) {
     console.error('Error processing receipt(s):', error)
@@ -312,6 +418,11 @@ const processFiles = async (files) => {
     processing.value = false
     progress.value = 0
     processingFileCount.value = 0
+    // Close log stream on error
+    if (eventSource.value) {
+      eventSource.value.close()
+      eventSource.value = null
+    }
   }
 }
 
@@ -335,6 +446,13 @@ const reset = () => {
   progress.value = 0
   processingFileCount.value = 0
   currentFileIndex.value = 0
+  logMessages.value = []
+  currentLogMessage.value = ''
+  currentRecordId.value = null
+  if (eventSource.value) {
+    eventSource.value.close()
+    eventSource.value = null
+  }
   if (fileInput.value) {
     fileInput.value.value = ''
   }

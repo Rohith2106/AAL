@@ -11,11 +11,15 @@ const client = axios.create({
 
 export const api = {
   // Process receipt (single)
-  async processReceipt(file, ocrEngine = 'easyocr') {
+  async processReceipt(file, ocrEngine = 'easyocr', recordId = null) {
     const formData = new FormData()
     formData.append('file', file)
+    const params = { ocr_engine: ocrEngine }
+    if (recordId) {
+      params.record_id = recordId
+    }
     return client.post('/process-receipt', formData, {
-      params: { ocr_engine: ocrEngine },
+      params: params,
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -68,13 +72,33 @@ export const api = {
   },
 
   // Chat with ledger
-  async chat(message, recordId = null) {
-    return client.post('/chat', { message, record_id: recordId })
+  async chat(message, recordId = null, model = null) {
+    return client.post('/chat', { 
+      message, 
+      record_id: recordId,
+      model: model
+    })
   },
 
   // Get stats
   async getStats() {
     return client.get('/stats')
+  },
+
+  // Convert currency
+  async convertCurrency(amount, fromCurrency, toCurrency = 'USD') {
+    return client.post('/convert-currency', null, {
+      params: {
+        amount,
+        from_currency: fromCurrency,
+        to_currency: toCurrency
+      }
+    })
+  },
+
+  // Create manual ledger entry
+  async createManualEntry(entryData) {
+    return client.post('/ledger/manual', entryData)
   },
 }
 

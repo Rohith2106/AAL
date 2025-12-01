@@ -43,6 +43,10 @@ def create_ledger_entry(
         # Determine entry status based on validation
         entry_status = "validated" if validation_status == "valid" else "pending"
         
+        # Use validated currency from LLM if available, otherwise use extracted currency
+        validated_currency = orchestration_result["validation_result"].get("currency")
+        currency = validated_currency if validated_currency else structured_data.get("currency", "USD")
+        
         entry = LedgerEntry(
             record_id=record_id,
             vendor=structured_data.get("vendor") or "Unknown Vendor",
@@ -50,7 +54,7 @@ def create_ledger_entry(
             amount=structured_data.get("subtotal") or structured_data.get("total") or 0.0,
             tax=structured_data.get("tax"),
             total=structured_data.get("total") or structured_data.get("subtotal") or 0.0,
-            currency=structured_data.get("currency", "USD"),
+            currency=currency,
             exchange_rate=structured_data.get("exchange_rate", 1.0),
             usd_total=structured_data.get("usd_equivalent", structured_data.get("total", 0.0)),
             invoice_number=structured_data.get("invoice_number"),

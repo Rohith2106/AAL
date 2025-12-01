@@ -3,7 +3,7 @@ LLM-based classification service for categorizing receipts and invoices.
 """
 
 from typing import Dict, Any, Optional, Tuple
-from app.services.llm_orchestrator import get_llm
+from app.core.llm import get_llm
 from langchain.schema import HumanMessage
 import json
 import logging

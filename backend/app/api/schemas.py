@@ -69,8 +69,30 @@ class LedgerEntryResponse(BaseModel):
 class ChatMessage(BaseModel):
     message: str
     record_id: Optional[str] = None
+    model: Optional[str] = None  # Model name, defaults to settings.LLM_MODEL
 
 
 class ChatResponse(BaseModel):
     response: str
     sources: Optional[List[Dict[str, Any]]] = None
+
+
+class ManualEntryItem(BaseModel):
+    name: str
+    quantity: int = 1
+    unit_price: float
+    line_total: Optional[float] = None
+
+
+class CreateManualEntryRequest(BaseModel):
+    vendor: str
+    date: str
+    amount: Optional[float] = None
+    tax: Optional[float] = None
+    total: float
+    currency: str = "USD"
+    category: Optional[str] = None
+    payment_method: Optional[str] = None
+    invoice_number: Optional[str] = None
+    description: Optional[str] = None
+    items: List[ManualEntryItem] = []

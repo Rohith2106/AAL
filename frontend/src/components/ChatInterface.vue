@@ -6,6 +6,17 @@
         <h2 class="text-xl lg:text-2xl font-bold text-gray-800">AI Assistant</h2>
         <p class="text-sm lg:text-base text-gray-500 mt-1">Ask questions about your financial data</p>
       </div>
+      
+      <!-- Model Selection -->
+      <div class="flex items-center gap-2">
+        <label class="text-xs font-semibold text-gray-600">Model:</label>
+        <select v-model="selectedModel"
+          class="px-3 py-2 bg-white/80 border border-white/50 rounded-xl text-sm font-medium focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all min-w-[200px]">
+          <option v-for="model in geminiModels" :key="model" :value="model">
+            {{ model }}
+          </option>
+        </select>
+      </div>
     </div>
 
     <!-- Chat Area -->
@@ -111,6 +122,17 @@ const messages = ref([
 ])
 const inputMessage = ref('')
 const loading = ref(false)
+const selectedModel = ref('gemini-2.5-flash')
+
+// Available Gemini models
+const geminiModels = [
+  'gemini-3-pro-preview',
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-flash-latest',
+  'gemini-flash-lite-latest'
+]
 
 const exampleQuestions = [
   'What is the total amount spent?',
@@ -134,7 +156,7 @@ const sendMessage = async () => {
   loading.value = true
 
   try {
-    const response = await api.chat(userMessage)
+    const response = await api.chat(userMessage, null, selectedModel.value)
     messages.value.push({
       role: 'assistant',
       content: response.data.response,

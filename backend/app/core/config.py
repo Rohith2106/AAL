@@ -41,7 +41,7 @@ class Settings(BaseSettings):
         return v
     
     # LLM Settings
-    LLM_MODEL: str = "gemini-2.5-flash"
+    LLM_MODEL: str = "gemini-2.5-flash"  # Default model, can be overridden per request
     LLM_TEMPERATURE: float = 0.1
     LLM_MAX_TOKENS: int = 4096
     
@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # Ignore extra fields in .env file (like OPENAI_API_KEY)
 
 
 settings = Settings()

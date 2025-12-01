@@ -8,11 +8,13 @@
       </div>
       <div class="flex gap-2 sm:gap-3">
         <button
+          @click="exportToCSV"
           class="px-3 sm:px-4 py-2 bg-white/50 hover:bg-white/80 text-gray-700 rounded-xl text-sm font-medium transition-all duration-200 border border-white/40 shadow-sm backdrop-blur-sm">
           <span class="hidden sm:inline">Export CSV</span>
           <span class="sm:hidden">📊</span>
         </button>
         <button
+          @click="showManualEntryModal = true"
           class="px-3 sm:px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-lg shadow-gray-900/20">
           <span class="hidden sm:inline">Add Manual Entry</span>
           <span class="sm:hidden">+</span>
@@ -120,8 +122,8 @@
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">{{ entry.date || 'N/A' }}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">{{ entry.vendor || 'N/A' }}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{{ formatCurrency(entry.amount, entry.currency) }}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{{ formatCurrency(entry.total, entry.currency) }}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{{ formatCurrencyUSD(entry.usd_amount || entry.amount, entry.currency) }}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{{ formatCurrencyUSD(entry.usd_total || entry.total, entry.currency) }}</td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <span :class="[
                     'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border',
@@ -277,7 +279,7 @@
               </div>
               <div class="bg-white/50 rounded-2xl p-4 border border-white/50">
                 <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Amount</label>
-                <p class="text-2xl font-bold text-gray-900 mt-1">${{ (selectedEntry.total || 0).toFixed(2) }}</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1">{{ formatCurrencyUSD(selectedEntry.usd_total || selectedEntry.total || 0, selectedEntry.currency) }}</p>
               </div>
               <div class="bg-white/50 rounded-2xl p-4 border border-white/50">
                 <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">Payment Method</label>
@@ -307,11 +309,9 @@
                     <tr v-for="item in selectedEntry.items" :key="item.id" class="hover:bg-white/40">
                       <td class="px-5 py-3 text-sm text-gray-900 font-medium">{{ item.name }}</td>
                       <td class="px-5 py-3 text-sm text-gray-600 text-right">{{ item.quantity }}</td>
-                      <td class="px-5 py-3 text-sm text-gray-600 text-right">${{ (item.unit_price || 0).toFixed(2) }}
+                      <td class="px-5 py-3 text-sm text-gray-600 text-right">{{ formatCurrencyUSD(item.unit_price || 0, selectedEntry.currency) }}
                       </td>
-                      <td class="px-5 py-3 text-sm text-gray-900 text-right font-bold">${{ (item.line_total ||
-                        0).toFixed(2)
-                      }}</td>
+                      <td class="px-5 py-3 text-sm text-gray-900 text-right font-bold">{{ formatCurrencyUSD(item.line_total || 0, selectedEntry.currency) }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -350,6 +350,174 @@
         </div>
       </div>
     </div>
+
+    <!-- Manual Entry Modal -->
+    <div v-if="showManualEntryModal"
+      class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4 transition-all duration-300 overflow-y-auto"
+      @click.self="showManualEntryModal = false">
+      <div
+        class="bg-white/90 backdrop-blur-xl rounded-2xl lg:rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-white/50 my-4">
+        <div class="p-8">
+          <div class="flex justify-between items-start mb-8">
+            <div>
+              <h3 class="text-2xl font-bold text-gray-900">Add Manual Transaction</h3>
+              <p class="text-gray-500 text-sm mt-1">Enter transaction details manually</p>
+            </div>
+            <button @click="showManualEntryModal = false"
+              class="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors">
+              <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <form @submit.prevent="submitManualEntry" class="space-y-6">
+            <!-- Basic Information -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Vendor *</label>
+                <input v-model="manualEntry.vendor" type="text" required
+                  class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all"
+                  placeholder="Vendor name" />
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Date *</label>
+                <input v-model="manualEntry.date" type="date" required
+                  class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Currency *</label>
+                <select v-model="manualEntry.currency" required
+                  class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all">
+                  <option value="USD">USD ($)</option>
+                  <option value="IDR">IDR (Rp)</option>
+                  <option value="ZAR">ZAR (R)</option>
+                  <option value="EUR">EUR (€)</option>
+                  <option value="GBP">GBP (£)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Amount</label>
+                <input v-model.number="manualEntry.amount" type="number" step="0.01" min="0"
+                  class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all"
+                  placeholder="0.00" />
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Tax</label>
+                <input v-model.number="manualEntry.tax" type="number" step="0.01" min="0"
+                  class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all"
+                  placeholder="0.00" />
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Total *</label>
+              <input v-model.number="manualEntry.total" type="number" step="0.01" min="0" required
+                class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all"
+                placeholder="0.00" />
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Category</label>
+                <input v-model="manualEntry.category" type="text"
+                  class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all"
+                  placeholder="e.g., Office Supplies" />
+              </div>
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Payment Method</label>
+                <select v-model="manualEntry.payment_method"
+                  class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all">
+                  <option value="">Select...</option>
+                  <option value="CASH">Cash</option>
+                  <option value="CARD">Card</option>
+                  <option value="CHECK">Check</option>
+                  <option value="TRANSFER">Transfer</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Invoice Number</label>
+              <input v-model="manualEntry.invoice_number" type="text"
+                class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all"
+                placeholder="Optional" />
+            </div>
+
+            <div>
+              <label class="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+              <textarea v-model="manualEntry.description" rows="3"
+                class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all"
+                placeholder="Transaction description"></textarea>
+            </div>
+
+            <!-- Line Items Section -->
+            <div>
+              <div class="flex justify-between items-center mb-4">
+                <label class="block text-sm font-semibold text-gray-700">Line Items</label>
+                <button type="button" @click="addLineItem"
+                  class="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-sm font-medium transition-all">
+                  + Add Item
+                </button>
+              </div>
+              <div v-if="manualEntry.items.length > 0" class="space-y-3">
+                <div v-for="(item, index) in manualEntry.items" :key="index"
+                  class="bg-white/50 rounded-xl p-4 border border-white/50">
+                  <div class="grid grid-cols-12 gap-3 items-end">
+                    <div class="col-span-5">
+                      <label class="block text-xs font-medium text-gray-600 mb-1">Item Name</label>
+                      <input v-model="item.name" type="text" required
+                        class="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none"
+                        placeholder="Item name" />
+                    </div>
+                    <div class="col-span-2">
+                      <label class="block text-xs font-medium text-gray-600 mb-1">Qty</label>
+                      <input v-model.number="item.quantity" type="number" min="1" step="1" required
+                        class="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none"
+                        placeholder="1" />
+                    </div>
+                    <div class="col-span-2">
+                      <label class="block text-xs font-medium text-gray-600 mb-1">Unit Price</label>
+                      <input v-model.number="item.unit_price" type="number" step="0.01" min="0" required
+                        class="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none"
+                        placeholder="0.00" />
+                    </div>
+                    <div class="col-span-2">
+                      <label class="block text-xs font-medium text-gray-600 mb-1">Total</label>
+                      <input :value="((item.quantity || 0) * (item.unit_price || 0)).toFixed(2)" type="text" readonly
+                        class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-600"
+                        placeholder="0.00" />
+                    </div>
+                    <div class="col-span-1">
+                      <button type="button" @click="removeLineItem(index)"
+                        class="w-full px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-all">
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p v-else class="text-sm text-gray-500 text-center py-4">No line items. Click "Add Item" to add line items.</p>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex gap-4 pt-6 border-t border-gray-200/50">
+              <button type="button" @click="showManualEntryModal = false"
+                class="flex-1 px-6 py-3 rounded-xl font-medium transition-all duration-200 bg-gray-100 hover:bg-gray-200 text-gray-700">
+                Cancel
+              </button>
+              <button type="submit" :disabled="loading"
+                class="flex-1 px-6 py-3 rounded-xl font-bold transition-all duration-200 bg-gray-900 hover:bg-gray-800 text-white shadow-lg shadow-gray-900/20 disabled:opacity-50 disabled:cursor-not-allowed">
+                {{ loading ? 'Creating...' : 'Create Transaction' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -361,11 +529,26 @@ const ledgerEntries = ref([])
 const stats = ref({})
 const selectedEntry = ref(null)
 const entryToDelete = ref(null)
+const showManualEntryModal = ref(false)
 const filters = ref({
   status: '',
   vendor: ''
 })
 const loading = ref(false)
+const conversionCache = ref({}) // Cache for currency conversions: { "IDR:1000": 0.067 }
+const manualEntry = ref({
+  vendor: '',
+  date: new Date().toISOString().split('T')[0],
+  amount: null,
+  tax: null,
+  total: null,
+  currency: 'USD',
+  category: '',
+  payment_method: '',
+  invoice_number: '',
+  description: '',
+  items: []
+})
 
 let debounceTimer = null
 
@@ -373,8 +556,100 @@ const loadLedger = async () => {
   try {
     const response = await api.getLedger(0, 100, filters.value.status || null, filters.value.vendor || null)
     ledgerEntries.value = response.data
+    
+    // Convert all non-USD amounts to USD
+    await convertAllToUSD()
   } catch (error) {
     console.error('Error loading ledger:', error)
+  }
+}
+
+const convertAllToUSD = async () => {
+  // Group entries by currency to minimize API calls
+  const conversionPromises = []
+  
+  for (const entry of ledgerEntries.value) {
+    const currency = entry.currency || 'USD'
+    if (currency !== 'USD') {
+      // Use stored usd_total from backend if available
+      if (entry.usd_total) {
+        entry.usd_total = entry.usd_total
+      } else if (entry.total) {
+        // Only convert if usd_total is not available
+        conversionPromises.push(convertToUSD(entry, 'total'))
+      }
+      
+      // For amount field, calculate from usd_total if available, otherwise convert
+      if (entry.usd_total && entry.total && entry.amount) {
+        // Calculate usd_amount proportionally
+        entry.usd_amount = (entry.usd_total / entry.total) * entry.amount
+      } else if (entry.amount) {
+        conversionPromises.push(convertToUSD(entry, 'amount'))
+      }
+    } else {
+      // Already USD, use existing values
+      entry.usd_amount = entry.amount
+      entry.usd_total = entry.usd_total || entry.total
+    }
+  }
+  
+  // Wait for all conversions to complete
+  await Promise.all(conversionPromises)
+}
+
+const convertToUSD = async (entry, field) => {
+  const currency = entry.currency || 'USD'
+  const amount = entry[field]
+  
+  if (!amount || currency === 'USD') {
+    if (field === 'amount') {
+      entry.usd_amount = amount
+    } else if (field === 'total') {
+      entry.usd_total = amount
+    }
+    return
+  }
+  
+  // Check cache first
+  const cacheKey = `${currency}:${amount}`
+  if (conversionCache.value[cacheKey]) {
+    if (field === 'amount') {
+      entry.usd_amount = conversionCache.value[cacheKey]
+    } else if (field === 'total') {
+      entry.usd_total = conversionCache.value[cacheKey]
+    }
+    return
+  }
+  
+  try {
+    // Use stored usd_total if available (from backend)
+    if (field === 'total' && entry.usd_total) {
+      conversionCache.value[cacheKey] = entry.usd_total
+      return
+    }
+    
+    // Call conversion API
+    const response = await api.convertCurrency(amount, currency, 'USD')
+    const convertedAmount = response.data.converted_amount
+    if (field === 'amount') {
+      entry.usd_amount = convertedAmount
+    } else if (field === 'total') {
+      entry.usd_total = convertedAmount
+    }
+    conversionCache.value[cacheKey] = convertedAmount
+  } catch (error) {
+    console.error(`Error converting ${field} for entry ${entry.record_id}:`, error)
+    // Fallback: use stored usd_total or original amount
+    if (field === 'total' && entry.usd_total) {
+      conversionCache.value[cacheKey] = entry.usd_total
+    } else {
+      const fallback = field === 'total' && entry.usd_total ? entry.usd_total : amount
+      if (field === 'amount') {
+        entry.usd_amount = fallback
+      } else if (field === 'total') {
+        entry.usd_total = fallback
+      }
+    }
   }
 }
 
@@ -401,6 +676,16 @@ const viewDetails = async (entry) => {
   try {
     const response = await api.getLedgerEntry(entry.record_id)
     selectedEntry.value = response.data
+    
+    // Convert to USD if needed
+    const currency = selectedEntry.value.currency || 'USD'
+    if (currency !== 'USD') {
+      if (selectedEntry.value.total && !selectedEntry.value.usd_total) {
+        await convertToUSD(selectedEntry.value, 'total')
+      }
+    } else {
+      selectedEntry.value.usd_total = selectedEntry.value.usd_total || selectedEntry.value.total
+    }
   } catch (error) {
     console.error('Error loading entry details:', error)
     selectedEntry.value = entry
@@ -452,6 +737,14 @@ const deleteEntry = async (recordId) => {
   }
 }
 
+// Format currency for LedgerView - always display in USD
+const formatCurrencyUSD = (amount, originalCurrency = 'USD') => {
+  const value = amount || 0
+  // Always show USD in ledger view (amounts are already converted)
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+// Keep original formatCurrency for other uses if needed
 const formatCurrency = (amount, currency = 'USD') => {
   const symbols = {
     'USD': '$',
@@ -470,6 +763,149 @@ const formatCurrency = (amount, currency = 'USD') => {
   }
   
   return `${symbol}${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+const addLineItem = () => {
+  manualEntry.value.items.push({
+    name: '',
+    quantity: 1,
+    unit_price: 0,
+    line_total: 0
+  })
+}
+
+const removeLineItem = (index) => {
+  manualEntry.value.items.splice(index, 1)
+}
+
+const submitManualEntry = async () => {
+  if (loading.value) return
+  loading.value = true
+  
+  try {
+    // Prepare entry data
+    const entryData = { ...manualEntry.value }
+    
+    // Calculate totals from items if items exist
+    if (entryData.items.length > 0) {
+      entryData.items = entryData.items.map(item => ({
+        name: item.name,
+        quantity: item.quantity || 1,
+        unit_price: item.unit_price || 0,
+        line_total: (item.quantity || 1) * (item.unit_price || 0)
+      }))
+      
+      const itemsTotal = entryData.items.reduce((sum, item) => sum + item.line_total, 0)
+      
+      if (!entryData.amount) {
+        entryData.amount = itemsTotal
+      }
+      if (!entryData.total) {
+        entryData.total = itemsTotal + (entryData.tax || 0)
+      }
+    } else {
+      // No items, ensure amount is set
+      if (!entryData.amount) {
+        entryData.amount = entryData.total - (entryData.tax || 0)
+      }
+    }
+    
+    await api.createManualEntry(entryData)
+    
+    // Reset form
+    manualEntry.value = {
+      vendor: '',
+      date: new Date().toISOString().split('T')[0],
+      amount: null,
+      tax: null,
+      total: null,
+      currency: 'USD',
+      category: '',
+      payment_method: '',
+      invoice_number: '',
+      description: '',
+      items: []
+    }
+    
+    showManualEntryModal.value = false
+    
+    // Reload ledger and stats
+    await loadLedger()
+    await loadStats()
+  } catch (error) {
+    console.error('Error creating manual entry:', error)
+    alert('Failed to create transaction: ' + (error.response?.data?.detail || error.message))
+  } finally {
+    loading.value = false
+  }
+}
+
+const exportToCSV = () => {
+  // Prepare CSV data
+  const headers = [
+    'Record ID',
+    'Date',
+    'Vendor',
+    'Amount (Original Currency)',
+    'Total (Original Currency)',
+    'Currency',
+    'Amount (USD)',
+    'Total (USD)',
+    'Tax',
+    'Status',
+    'Category',
+    'Payment Method',
+    'Invoice Number',
+    'Description',
+    'Validation Confidence',
+    'Created At'
+  ]
+  
+  const rows = ledgerEntries.value.map(entry => [
+    entry.record_id || '',
+    entry.date || '',
+    entry.vendor || '',
+    entry.amount || 0,
+    entry.total || 0,
+    entry.currency || 'USD',
+    entry.usd_amount || entry.amount || 0,
+    entry.usd_total || entry.total || 0,
+    entry.tax || 0,
+    entry.status || '',
+    entry.category || '',
+    entry.payment_method || '',
+    entry.invoice_number || '',
+    entry.description || '',
+    entry.validation_confidence ? (entry.validation_confidence * 100).toFixed(2) + '%' : '',
+    entry.created_at || ''
+  ])
+  
+  // Convert to CSV format
+  const escapeCSV = (value) => {
+    if (value === null || value === undefined) return ''
+    const stringValue = String(value)
+    // If contains comma, quote, or newline, wrap in quotes and escape quotes
+    if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+      return `"${stringValue.replace(/"/g, '""')}"`
+    }
+    return stringValue
+  }
+  
+  const csvContent = [
+    headers.map(escapeCSV).join(','),
+    ...rows.map(row => row.map(escapeCSV).join(','))
+  ].join('\n')
+  
+  // Create blob and download
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  const url = URL.createObjectURL(blob)
+  link.setAttribute('href', url)
+  link.setAttribute('download', `ledger_export_${new Date().toISOString().split('T')[0]}.csv`)
+  link.style.visibility = 'hidden'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 
 onMounted(() => {

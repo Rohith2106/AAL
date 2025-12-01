@@ -37,7 +37,7 @@
         </div>
         <div class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 p-6 shadow-lg">
           <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total</label>
-          <p class="text-2xl font-bold text-gray-900 mt-2">${{ (entry.total || 0).toFixed(2) }}</p>
+          <p class="text-2xl font-bold text-gray-900 mt-2">{{ formatCurrency(entry.total || 0, entry.currency) }}</p>
         </div>
         <div class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 p-6 shadow-lg">
           <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">Status</label>
@@ -80,22 +80,22 @@
               <tr v-for="item in entry.items" :key="item.id" class="hover:bg-white/40 transition-colors">
                 <td class="px-6 py-4 text-sm text-gray-900 font-medium">{{ item.name }}</td>
                 <td class="px-6 py-4 text-sm text-gray-600 text-right">{{ item.quantity }}</td>
-                <td class="px-6 py-4 text-sm text-gray-600 text-right">${{ (item.unit_price || 0).toFixed(2) }}</td>
-                <td class="px-6 py-4 text-sm text-gray-900 text-right font-bold">${{ (item.line_total || 0).toFixed(2) }}</td>
+                <td class="px-6 py-4 text-sm text-gray-600 text-right">{{ formatCurrency(item.unit_price || 0, entry.currency) }}</td>
+                <td class="px-6 py-4 text-sm text-gray-900 text-right font-bold">{{ formatCurrency(item.line_total || 0, entry.currency) }}</td>
               </tr>
             </tbody>
             <tfoot class="bg-gray-50/50">
               <tr>
                 <td colspan="3" class="px-6 py-4 text-sm font-bold text-gray-800 text-right">Subtotal:</td>
-                <td class="px-6 py-4 text-sm font-bold text-gray-900 text-right">${{ (entry.amount || 0).toFixed(2) }}</td>
+                <td class="px-6 py-4 text-sm font-bold text-gray-900 text-right">{{ formatCurrency(entry.amount || 0, entry.currency) }}</td>
               </tr>
               <tr v-if="entry.tax">
                 <td colspan="3" class="px-6 py-4 text-sm font-bold text-gray-800 text-right">Tax:</td>
-                <td class="px-6 py-4 text-sm font-bold text-gray-900 text-right">${{ (entry.tax || 0).toFixed(2) }}</td>
+                <td class="px-6 py-4 text-sm font-bold text-gray-900 text-right">{{ formatCurrency(entry.tax || 0, entry.currency) }}</td>
               </tr>
               <tr class="border-t-2 border-gray-300">
                 <td colspan="3" class="px-6 py-4 text-base font-bold text-gray-800 text-right">Total:</td>
-                <td class="px-6 py-4 text-base font-bold text-gray-900 text-right">${{ (entry.total || 0).toFixed(2) }}</td>
+                <td class="px-6 py-4 text-base font-bold text-gray-900 text-right">{{ formatCurrency(entry.total || 0, entry.currency) }}</td>
               </tr>
             </tfoot>
           </table>
@@ -201,6 +201,30 @@ const deleteEntry = async () => {
     alert('Failed to delete transaction: ' + (error.response?.data?.detail || error.message))
     loading.value = false
   }
+}
+
+const formatCurrency = (amount, currency = 'USD') => {
+  const symbols = {
+    'USD': '$',
+    'IDR': 'Rp',
+    'ZAR': 'R',
+    'EUR': '€',
+    'GBP': '£',
+    'JPY': '¥',
+    'CNY': '¥',
+    'INR': '₹',
+    'KRW': '₩'
+  }
+  
+  const symbol = symbols[currency] || (currency + ' ')
+  const value = amount || 0
+  
+  // No decimals for IDR, ZAR, JPY, KRW (whole number currencies)
+  if (['IDR', 'ZAR', 'JPY', 'KRW'].includes(currency)) {
+    return `${symbol}${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+  }
+  
+  return `${symbol}${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 onMounted(() => {

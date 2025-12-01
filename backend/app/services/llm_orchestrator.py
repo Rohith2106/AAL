@@ -36,6 +36,7 @@ Given a structured JSON record, analyze it for:
 3. Format: Are dates, amounts, and other fields in correct format?
 4. Reasonableness: Are the values within expected ranges?
 5. Business logic: Does the record make business sense?
+6. Currency: Validate the currency code is correct (ISO 4217 format: USD, IDR, ZAR, EUR, GBP, etc.)
 
 Extracted Record:
 {record_json}
@@ -48,8 +49,12 @@ Provide your validation in the following JSON format:
     "status": "valid|invalid|warning|needs_review",
     "issues": ["list of issues found"],
     "confidence": 0.0-1.0,
-    "reasoning": "detailed explanation of validation"
+    "reasoning": "detailed explanation of validation",
+    "currency": "ISO currency code (e.g., USD, IDR, ZAR, EUR, GBP)",
+    "currency_validated": true/false
 }}
+
+IMPORTANT: Always include the currency field in your response. If the currency is not specified in the record, infer it from vendor location, country, or currency symbols in the text.
 
 Be thorough and precise. Flag any potential issues."""
     
@@ -93,7 +98,9 @@ Be thorough and precise. Flag any potential issues."""
             "status": validation_data.get("status", "needs_review"),
             "issues": validation_data.get("issues", []),
             "confidence": validation_data.get("confidence", 0.5),
-            "reasoning": validation_data.get("reasoning", "")
+            "reasoning": validation_data.get("reasoning", ""),
+            "currency": validation_data.get("currency", structured_data.get("currency", "USD")),
+            "currency_validated": validation_data.get("currency_validated", True)
         }
     
     except json.JSONDecodeError as json_err:
@@ -102,7 +109,9 @@ Be thorough and precise. Flag any potential issues."""
             "status": "needs_review",
             "issues": [f"JSON parsing error: {str(json_err)}"],
             "confidence": 0.0,
-            "reasoning": "LLM returned malformed JSON response"
+            "reasoning": "LLM returned malformed JSON response",
+            "currency": structured_data.get("currency", "USD"),
+            "currency_validated": False
         }
     except asyncio.TimeoutError:
         logger.error("LLM validation timed out after 30 seconds")
@@ -110,7 +119,9 @@ Be thorough and precise. Flag any potential issues."""
             "status": "needs_review",
             "issues": ["LLM validation timed out"],
             "confidence": 0.0,
-            "reasoning": "Validation request timed out after 30 seconds"
+            "reasoning": "Validation request timed out after 30 seconds",
+            "currency": structured_data.get("currency", "USD"),
+            "currency_validated": False
         }
     except Exception as e:
         logger.error(f"Validation error: {e}", exc_info=True)
@@ -118,7 +129,9 @@ Be thorough and precise. Flag any potential issues."""
             "status": "needs_review",
             "issues": [f"Validation error: {str(e)}"],
             "confidence": 0.0,
-            "reasoning": f"Error during validation: {str(e)}"
+            "reasoning": f"Error during validation: {str(e)}",
+            "currency": structured_data.get("currency", "USD"),
+            "currency_validated": False
         }
 
 
