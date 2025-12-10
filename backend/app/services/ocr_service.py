@@ -1,12 +1,13 @@
 from PIL import Image, ImageEnhance
 from pdf2image import convert_from_path
 import easyocr
-from typing import Tuple
+from typing import Tuple, Dict, Any, List
 import io
 import numpy as np
 import cv2
 import logging
 from app.core.config import settings
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -55,16 +56,74 @@ def score_extracted_text(text: str) -> float:
     return score
 
 
-def run_easyocr(image: Image.Image) -> Tuple[str, float]:
-    """Run EasyOCR and return text with score."""
+def calculate_confidence_score(ocr_result: List[Any]) -> Dict[str, float]:
+    """
+    Calculate real confidence metrics from EasyOCR detail results.
+    
+    Args:
+        ocr_result: List of tuples from reader.readtext(detail=1)
+                   Format: [(text, confidence, bbox), ...]
+    
+    Returns:
+        Dictionary with confidence metrics
+    """
+    if not ocr_result:
+        return {
+            "average_confidence": 0.0,
+            "min_confidence": 0.0,
+            "max_confidence": 0.0,
+            "std_deviation": 0.0,
+            "high_confidence_count": 0,
+            "medium_confidence_count": 0,
+            "low_confidence_count": 0,
+            "total_detections": 0
+        }
+    
+    confidences = [item[2] for item in ocr_result if len(item) > 2]
+    
+    if not confidences:
+        return {"average_confidence": 0.0, "total_detections": len(ocr_result)}
+    
+    high_conf = sum(1 for c in confidences if c > 0.8)
+    medium_conf = sum(1 for c in confidences if 0.6 <= c <= 0.8)
+    low_conf = sum(1 for c in confidences if c < 0.6)
+    
+    return {
+        "average_confidence": float(np.mean(confidences)),
+        "min_confidence": float(np.min(confidences)),
+        "max_confidence": float(np.max(confidences)),
+        "std_deviation": float(np.std(confidences)),
+        "high_confidence_count": high_conf,
+        "medium_confidence_count": medium_conf,
+        "low_confidence_count": low_conf,
+        "total_detections": len(confidences)
+    }
+
+
+def run_easyocr(image: Image.Image) -> Tuple[str, float, Dict[str, Any]]:
+    """
+    Run EasyOCR and return text with confidence metrics.
+    
+    Returns:
+        Tuple of (extracted_text, heuristic_score, confidence_metrics_dict)
+    """
     reader = get_easyocr_reader()
     img_array = np.array(image)
-    result = reader.readtext(img_array, detail=0, paragraph=False)
-    if isinstance(result, list):
-        text = "\n".join(result)
+    
+    # Get detailed results with confidence scores
+    result_detailed = reader.readtext(img_array, detail=1, paragraph=False)
+    
+    # Extract text
+    if isinstance(result_detailed, list):
+        text = "\n".join([item[1] for item in result_detailed])
     else:
-        text = str(result or "")
-    return text.strip(), score_extracted_text(text)
+        text = str(result_detailed or "")
+    
+    # Calculate both heuristic and real confidence
+    heuristic_score = score_extracted_text(text)
+    confidence_metrics = calculate_confidence_score(result_detailed)
+    
+    return text.strip(), heuristic_score, confidence_metrics
 
 
 def preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
@@ -141,52 +200,85 @@ def preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
 async def extract_text_from_image(
     image_bytes: bytes,
     ocr_engine: str = None
-) -> str:
+) -> Dict[str, Any]:
     """
-    Extract text from image using EasyOCR with multi-strategy preprocessing
+    Extract text from image using EasyOCR with multi-strategy preprocessing.
+    Now returns comprehensive accuracy metrics.
     
     Args:
         image_bytes: Image file bytes
         ocr_engine: Not used, kept for API compatibility
     
     Returns:
-        Extracted text string
+        Dict with extracted text and detailed OCR accuracy metrics
     """
     try:
         # Open image from bytes
         image = Image.open(io.BytesIO(image_bytes))
         
         # Strategy 1: Original image
-        text_original, score_original = run_easyocr(image)
-        logger.info(f"Original image OCR (score={score_original:.2f}, length={len(text_original)})")
+        text_original, score_original, conf_original = run_easyocr(image)
+        logger.info(f"Original image OCR (heuristic_score={score_original:.2f}, avg_confidence={conf_original.get('average_confidence', 0):.3f})")
         
         # Strategy 2: Preprocessed image
         preprocessed_image = preprocess_image_for_ocr(image)
-        text_preprocessed, score_preprocessed = run_easyocr(preprocessed_image)
-        logger.info(f"Preprocessed image OCR (score={score_preprocessed:.2f}, length={len(text_preprocessed)})")
+        text_preprocessed, score_preprocessed, conf_preprocessed = run_easyocr(preprocessed_image)
+        logger.info(f"Preprocessed image OCR (heuristic_score={score_preprocessed:.2f}, avg_confidence={conf_preprocessed.get('average_confidence', 0):.3f})")
         
-        # Choose the best result based on score
-        if score_preprocessed > score_original:
-            logger.info(f"Using preprocessed result (score={score_preprocessed:.2f})")
-            return text_preprocessed.strip()
+        # Choose the best result based on average confidence (real score), then heuristic
+        avg_conf_original = conf_original.get('average_confidence', 0)
+        avg_conf_preprocessed = conf_preprocessed.get('average_confidence', 0)
+        
+        if avg_conf_preprocessed > avg_conf_original:
+            selected_text = text_preprocessed.strip()
+            selected_heuristic = score_preprocessed
+            selected_confidence = conf_preprocessed
+            selected_strategy = "preprocessed"
+            logger.info(f"Selected preprocessed (confidence={avg_conf_preprocessed:.3f})")
         else:
-            logger.info(f"Using original result (score={score_original:.2f})")
-            return text_original.strip()
+            selected_text = text_original.strip()
+            selected_heuristic = score_original
+            selected_confidence = conf_original
+            selected_strategy = "original"
+            logger.info(f"Selected original (confidence={avg_conf_original:.3f})")
+        
+        # Return comprehensive metrics
+        return {
+            "text": selected_text,
+            "strategy_used": selected_strategy,
+            "metrics": {
+                "heuristic_score": selected_heuristic,
+                "confidence_metrics": selected_confidence,
+                "text_length": len(selected_text),
+                "comparison": {
+                    "original": {
+                        "heuristic_score": score_original,
+                        "confidence": conf_original.get('average_confidence', 0),
+                        "text_length": len(text_original)
+                    },
+                    "preprocessed": {
+                        "heuristic_score": score_preprocessed,
+                        "confidence": conf_preprocessed.get('average_confidence', 0),
+                        "text_length": len(text_preprocessed)
+                    }
+                }
+            }
+        }
     
     except Exception as e:
         logger.error(f"OCR extraction error: {e}", exc_info=True)
         raise Exception(f"Failed to extract text from image: {str(e)}")
 
 
-async def extract_text_from_pdf(pdf_bytes: bytes) -> str:
+async def extract_text_from_pdf(pdf_bytes: bytes) -> Dict[str, Any]:
     """
-    Extract text from PDF file
+    Extract text from PDF file with accuracy metrics per page.
     
     Args:
         pdf_bytes: PDF file bytes
     
     Returns:
-        Extracted text string
+        Dict with extracted text and per-page accuracy metrics
     """
     try:
         # Save PDF to temporary file
@@ -201,14 +293,33 @@ async def extract_text_from_pdf(pdf_bytes: bytes) -> str:
             # Convert PDF to images
             images = convert_from_path(tmp_path, dpi=300)
             text_parts = []
+            page_metrics = []
             
             for i, image in enumerate(images):
                 buffer = io.BytesIO()
                 image.save(buffer, format="PNG")
-                page_text = await extract_text_from_image(buffer.getvalue())
+                page_result = await extract_text_from_image(buffer.getvalue())
+                
+                page_text = page_result["text"]
+                page_metrics_data = page_result["metrics"]
+                
                 text_parts.append(f"--- Page {i+1} ---\n{page_text}")
+                page_metrics.append({
+                    "page": i+1,
+                    "metrics": page_metrics_data
+                })
             
-            return "\n\n".join(text_parts).strip()
+            # Calculate overall metrics across all pages
+            avg_confidence = np.mean([pm["metrics"]["confidence_metrics"].get("average_confidence", 0) for pm in page_metrics])
+            
+            return {
+                "text": "\n\n".join(text_parts).strip(),
+                "total_pages": len(images),
+                "metrics": {
+                    "overall_average_confidence": float(avg_confidence),
+                    "pages": page_metrics
+                }
+            }
         finally:
             # Clean up temp file
             if os.path.exists(tmp_path):

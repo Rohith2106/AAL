@@ -108,24 +108,26 @@ async def process_receipt(
             # Step 1: OCR Extraction
             logger.info(f"Processing file {file.filename} with OCR engine: {ocr_engine}")
             if file_ext == 'pdf':
-                raw_text = await extract_text_from_pdf(file_bytes)
+                ocr_result = await extract_text_from_pdf(file_bytes)
+                # Extract text from PDF result (dict)
+                raw_text = ocr_result.get("text") if isinstance(ocr_result, dict) else ocr_result
+                ocr_metrics = ocr_result.get("metrics") if isinstance(ocr_result, dict) else {}
             else:
-                raw_text = await extract_text_from_image(file_bytes, ocr_engine)
+                ocr_result = await extract_text_from_image(file_bytes, ocr_engine)
+                # Extract text from image result (now returns dict with metrics)
+                raw_text = ocr_result.get("text") if isinstance(ocr_result, dict) else ocr_result
+                ocr_metrics = ocr_result.get("metrics") if isinstance(ocr_result, dict) else {}
             
             if not raw_text:
                 raise HTTPException(status_code=400, detail="No text extracted from image")
             
+            # Log OCR metrics if available
+            if ocr_metrics:
+                logger.info(f"OCR Metrics - Confidence: {ocr_metrics.get('confidence_metrics', {}).get('average_confidence', 'N/A')}")
+            
             # Step 2: Data Extraction
             structured_data = await parse_receipt_text(raw_text)
             structured_data["record_id"] = record_id
-            
-            # DEBUG: Log items extraction
-            items_count = len(structured_data.get("items", []))
-            logger.info(f"Extracted {items_count} items from receipt")
-            if items_count > 0:
-                logger.info(f"Items: {structured_data.get('items')[:3]}...")  # Log first 3
-            else:
-                logger.warning("No items extracted from receipt!")
             
             # Step 2.5: Classify transaction using LLM
             if not structured_data.get("category"):
@@ -243,9 +245,11 @@ async def process_multiple_receipts(
             # Step 1: OCR Extraction
             logger.info(f"Processing file {file.filename} with OCR engine: {ocr_engine}")
             if file_ext == 'pdf':
-                raw_text = await extract_text_from_pdf(file_bytes)
+                ocr_result = await extract_text_from_pdf(file_bytes)
+                raw_text = ocr_result.get("text") if isinstance(ocr_result, dict) else ocr_result
             else:
-                raw_text = await extract_text_from_image(file_bytes, ocr_engine)
+                ocr_result = await extract_text_from_image(file_bytes, ocr_engine)
+                raw_text = ocr_result.get("text") if isinstance(ocr_result, dict) else ocr_result
             
             if not raw_text:
                 raise Exception("No text extracted from image")

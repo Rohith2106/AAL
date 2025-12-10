@@ -335,7 +335,9 @@ async def extract_with_llm(raw_text: str) -> Dict[str, Any]:
             response_text = response_text.split("```json")[1].split("```")[0].strip()
         elif "```" in response_text:
             response_text = response_text.split("```")[1].split("```")[0].strip()
-            
+        
+        logger.debug(f"LLM response (first 500 chars): {response_text[:500]}")
+        
         data = json.loads(response_text)
         
         # Post-process monetary values: convert strings to floats using parse_price
@@ -359,8 +361,11 @@ async def extract_with_llm(raw_text: str) -> Dict[str, Any]:
                     item['line_total'] = parse_price(str(item['line_total']))
         
         return data
+    except json.JSONDecodeError as json_err:
+        logger.error(f"LLM JSON parsing error: {json_err} | Response: {response_text[:200]}")
+        return {}
     except Exception as e:
-        logger.error(f"LLM extraction error: {e}")
+        logger.error(f"LLM extraction error: {e}", exc_info=True)
         return {}
 
 
