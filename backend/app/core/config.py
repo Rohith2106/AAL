@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     
     # OCR Settings
     OCR_ENGINE: str = "tesseract"  # tesseract or easyocr
+
+    # Our company configuration (used for perspective-aware analysis)
+    OUR_COMPANY_NAME: Optional[str] = None
     
     class Config:
         env_file = ".env"

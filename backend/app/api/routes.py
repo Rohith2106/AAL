@@ -6,8 +6,13 @@ import logging
 from datetime import datetime
 import json
 from app.api.schemas import (
-    ProcessReceiptResponse, LedgerEntryResponse, ChatMessage, ChatResponse,
-    ProcessMultipleReceiptsResponse, CreateManualEntryRequest
+    ProcessReceiptResponse,
+    LedgerEntryResponse,
+    ChatMessage,
+    ChatResponse,
+    ProcessMultipleReceiptsResponse,
+    CreateManualEntryRequest,
+    PerspectiveAnalysisResponse,
 )
 from app.services.ocr_service import extract_text_from_image, extract_text_from_pdf
 from app.services.extraction_service import parse_receipt_text
@@ -22,6 +27,7 @@ from app.services.ledger_service import (
 from app.services.vector_service import find_similar_documents
 from app.db.mongodb import get_database
 from app.core.config import settings
+from app.services.perspective_service import analyze_perspective
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +125,26 @@ async def process_receipt(
             # Step 2: Data Extraction
             structured_data = await parse_receipt_text(raw_text)
             structured_data["record_id"] = record_id
+
+            # Step 2.2: Perspective-aware counterparty analysis (optional, rules-first)
+            try:
+                our_company_name = settings.OUR_COMPANY_NAME or ""
+                if our_company_name:
+                    perspective = await analyze_perspective(
+                        raw_text,
+                        our_company_name=our_company_name,
+                        metadata={
+                            "vendor": structured_data.get("vendor"),
+                            "total": structured_data.get("total"),
+                            "amount": structured_data.get("amount"),
+                            "payment_method": structured_data.get("payment_method"),
+                            "invoice_number": structured_data.get("invoice_number"),
+                            "currency": structured_data.get("currency"),
+                        },
+                    )
+                    structured_data["perspective"] = perspective
+            except Exception as e:
+                logger.warning(f"Perspective analysis failed for record {record_id}: {e}", exc_info=True)
             
             # DEBUG: Log items extraction
             items_count = len(structured_data.get("items", []))
@@ -339,6 +365,110 @@ async def get_ledger_entry_by_id(record_id: str):
     if not entry:
         raise HTTPException(status_code=404, detail="Ledger entry not found")
     return LedgerEntryResponse(**entry)
+
+
+@router.get("/ledger/{record_id}/perspective", response_model=PerspectiveAnalysisResponse)
+async def get_ledger_entry_perspective(
+    record_id: str,
+    our_company_name: Optional[str] = Query(
+        default=None,
+        description="Override for our company name; if omitted, uses settings.OUR_COMPANY_NAME",
+    ),
+):
+    """
+    Analyze transaction perspective (direction, roles, counterparty) for a given record.
+
+    Uses stored OCR text and structured data from the vector store (MongoDB).
+    """
+    from app.db.mongodb import get_database
+
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="MongoDB database not connected")
+
+    collection = db.receipts
+    doc = await collection.find_one({"record_id": record_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Receipt document not found")
+
+    raw_text = doc.get("raw_text") or ""
+    structured_data = doc.get("structured_data") or {}
+
+    # Prefer explicit query param, then stored env config; allow empty to still run heuristics
+    company = (our_company_name or settings.OUR_COMPANY_NAME or "").strip()
+
+    perspective = await analyze_perspective(
+        raw_text,
+        our_company_name=company,
+        metadata={
+            "vendor": structured_data.get("vendor"),
+            "total": structured_data.get("total"),
+            "amount": structured_data.get("amount"),
+            "payment_method": structured_data.get("payment_method"),
+            "invoice_number": structured_data.get("invoice_number"),
+            "currency": structured_data.get("currency"),
+        },
+    )
+
+    # ------------------------------------------------------------------
+    # Vector reconciliation: detect duplicates or counterpart transactions
+    # ------------------------------------------------------------------
+    try:
+        embedding = doc.get("embedding") or []
+        if embedding:
+            # Use same helper as other parts of the system
+            similar_docs = await find_similar_documents(embedding, threshold=0.95, limit=5)
+            # Exclude self
+            similar_docs = [d for d in similar_docs if d.get("record_id") != record_id]
+
+            if similar_docs:
+                top = similar_docs[0]
+                other_sd = top.get("structured_data", {}) or {}
+
+                this_total = structured_data.get("total")
+                other_total = other_sd.get("total")
+                this_date = (structured_data.get("date") or "").strip()
+                other_date = (other_sd.get("date") or "").strip()
+                this_vendor = (structured_data.get("vendor") or "").strip().lower()
+                other_vendor = (other_sd.get("vendor") or "").strip().lower()
+
+                same_total = (
+                    isinstance(this_total, (int, float))
+                    and isinstance(other_total, (int, float))
+                    and abs(float(this_total) - float(other_total)) < 0.01
+                )
+                same_date = bool(this_date and other_date and this_date == other_date)
+                same_vendor = bool(this_vendor and other_vendor and this_vendor == other_vendor)
+
+                if same_total and same_date and same_vendor:
+                    # Likely duplicate of an existing receipt – keep roles but reduce confidence
+                    logger.info(
+                        "Perspective reconciliation: record %s is likely a duplicate of %s",
+                        record_id,
+                        top.get("record_id"),
+                    )
+                    try:
+                        perspective_conf = float(perspective.get("confidence", 0.8))
+                    except Exception:
+                        perspective_conf = 0.8
+                    # Lower but not zero, to signal uncertainty
+                    perspective["confidence"] = min(perspective_conf, 0.4)
+                elif same_total and same_date and not same_vendor:
+                    # Same transaction seen from counterparty side
+                    logger.info(
+                        "Perspective reconciliation: record %s appears to be counterpart of %s",
+                        record_id,
+                        top.get("record_id"),
+                    )
+                    # If we don't already have a counterparty name, use the other vendor
+                    if not perspective.get("counterpartyName"):
+                        counterparty_name = other_sd.get("vendor")
+                        if counterparty_name:
+                            perspective["counterpartyName"] = counterparty_name
+    except Exception as e:
+        logger.warning(f"Error during perspective reconciliation for {record_id}: {e}", exc_info=True)
+
+    return PerspectiveAnalysisResponse(**perspective)
 
 
 @router.put("/ledger/{record_id}/status")

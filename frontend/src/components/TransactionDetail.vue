@@ -59,6 +59,62 @@
         </div>
       </div>
 
+      <!-- Perspective-Aware Counterparty Analysis -->
+      <div class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 p-6 shadow-lg">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider">
+              Transaction Perspective
+            </h3>
+            <p class="text-xs text-gray-500 mt-1" v-if="!perspectiveLoading && perspective">
+              {{ perspective.transactionDirection }} · {{ perspective.documentRole }}
+            </p>
+          </div>
+          <div v-if="perspective && perspective.confidence !== undefined" class="text-right">
+            <p class="text-xs text-gray-500">Confidence</p>
+            <p class="text-sm font-semibold text-gray-800">
+              {{ (perspective.confidence * 100).toFixed(0) }}%
+            </p>
+          </div>
+        </div>
+
+        <div v-if="perspectiveLoading" class="flex items-center space-x-2 text-xs text-gray-500">
+          <span class="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></span>
+          <span>Analyzing counterparty perspective…</span>
+        </div>
+
+        <div v-else-if="perspective" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Direction</p>
+            <p class="mt-0.5 font-medium text-gray-900">
+              {{ perspective.transactionDirection === 'OUTFLOW' ? 'Outflow (we pay)' : 'Inflow (we receive)' }}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Our Role</p>
+            <p class="mt-0.5 font-medium text-gray-900">
+              {{ perspective.ourRole }}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Counterparty Role</p>
+            <p class="mt-0.5 font-medium text-gray-900">
+              {{ perspective.counterpartyRole }}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Counterparty</p>
+            <p class="mt-0.5 font-medium text-gray-900">
+              {{ perspective.counterpartyName || entry.vendor || t('common.na') }}
+            </p>
+          </div>
+        </div>
+
+        <div v-else class="text-xs text-gray-400">
+          Perspective analysis not available for this transaction.
+        </div>
+      </div>
+
       <!-- Line Items Table -->
       <div class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 overflow-hidden shadow-xl">
         <div class="px-6 py-4 border-b border-gray-200/50 bg-gray-50/50">
@@ -219,6 +275,8 @@ const emit = defineEmits(['back', 'updated', 'deleted'])
 
 const entry = ref(null)
 const loading = ref(false)
+const perspective = ref(null)
+const perspectiveLoading = ref(false)
 
 const loadEntry = async () => {
   loading.value = true
@@ -230,6 +288,18 @@ const loadEntry = async () => {
     console.log('API Response:', response.data)
     console.log('Items array:', response.data.items)
     console.log('Items count:', response.data.items?.length || 0)
+
+    // Load perspective-aware counterparty analysis (best-effort)
+    perspectiveLoading.value = true
+    try {
+      const pResp = await api.getLedgerPerspective(props.recordId)
+      perspective.value = pResp.data
+    } catch (err) {
+      console.warn('Perspective analysis not available:', err)
+      perspective.value = null
+    } finally {
+      perspectiveLoading.value = false
+    }
   } catch (error) {
     console.error('Error loading entry:', error)
   } finally {

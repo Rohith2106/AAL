@@ -28,6 +28,15 @@ class ProcessMultipleReceiptsResponse(BaseModel):
     results: List[ProcessReceiptResponse]
 
 
+class PerspectiveAnalysisResponse(BaseModel):
+    transactionDirection: str  # "INFLOW" | "OUTFLOW"
+    ourRole: str  # "BUYER" | "VENDOR"
+    counterpartyRole: str  # "VENDOR" | "CUSTOMER"
+    documentRole: str  # "RECEIPT" | "PURCHASE_INVOICE" | "SALES_INVOICE" | "REFUND_NOTE"
+    counterpartyName: str
+    confidence: float
+
+
 class LedgerItemSchema(BaseModel):
     id: int
     name: str

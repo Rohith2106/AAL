@@ -54,6 +54,15 @@ export const api = {
     return client.get(`/ledger/${recordId}`)
   },
 
+  // Get perspective-aware counterparty analysis for a ledger entry
+  async getLedgerPerspective(recordId, ourCompanyName = null) {
+    const params = {}
+    if (ourCompanyName) {
+      params.our_company_name = ourCompanyName
+    }
+    return client.get(`/ledger/${recordId}/perspective`, { params })
+  },
+
   // Approve ledger entry
   async approveLedgerEntry(recordId) {
     return client.post(`/ledger/${recordId}/approve`)
