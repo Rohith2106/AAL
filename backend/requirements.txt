@@ -3,8 +3,10 @@ uvicorn[standard]==0.32.0
 python-multipart==0.0.12
 pydantic==2.9.2
 pydantic-settings==2.5.2
-langchain==0.3.27
-langchain-google-genai==2.0.10
+langchain==0.3.7
+langchain-core==0.3.37
+langchain-openai==0.2.8
+langchain-google-genai==1.0.10
 google-generativeai==0.8.3
 pytesseract==0.3.13
 Pillow==11.0.0
@@ -20,7 +22,7 @@ python-dotenv==1.0.1
 numpy==1.26.4
 sentence-transformers==3.0.1
 rapidfuzz==3.10.1
-openai==1.51.0
+openai==1.109.1
 aiofiles==24.1.0
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4

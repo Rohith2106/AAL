@@ -87,6 +87,23 @@ def create_ledger_entry(
         db.commit()
         db.refresh(entry)
         logger.info(f"Successfully created ledger entry with ID: {entry.id}, Status: {entry.status}")
+        
+        # Auto-generate double-entry journal entry
+        try:
+            from app.services.accounting_service import auto_generate_journal_entry, initialize_chart_of_accounts
+            # Initialize chart of accounts if needed
+            initialize_chart_of_accounts()
+            # Generate journal entry
+            category = structured_data.get("category")
+            journal_entry = auto_generate_journal_entry(entry, category)
+            if journal_entry:
+                logger.info(f"Auto-generated journal entry {journal_entry.id} for ledger entry {entry.id}")
+            else:
+                logger.warning(f"Failed to auto-generate journal entry for ledger entry {entry.id}")
+        except Exception as je:
+            logger.error(f"Error generating journal entry: {je}", exc_info=True)
+            # Don't fail the ledger entry creation if journal entry fails
+        
         return entry
     except Exception as e:
         db.rollback()
@@ -195,10 +212,21 @@ def get_ledger_entry(record_id: str) -> Optional[Dict[str, Any]]:
             "reasoning_trace": entry.reasoning_trace,
             "created_at": entry.created_at.isoformat() if entry.created_at else None,
             "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
-            "items": items_list
+            "items": items_list,
+            "journal_entry": get_journal_entry_for_ledger(entry.id)
         }
     finally:
         db.close()
+
+
+def get_journal_entry_for_ledger(ledger_entry_id: int) -> Optional[Dict[str, Any]]:
+    """Get journal entry data for a ledger entry"""
+    try:
+        from app.services.accounting_service import get_journal_entry_by_ledger_entry
+        return get_journal_entry_by_ledger_entry(ledger_entry_id)
+    except Exception as e:
+        logger.warning(f"Could not fetch journal entry for ledger {ledger_entry_id}: {e}")
+        return None
 
 
 def update_ledger_entry_status(record_id: str, status: str):

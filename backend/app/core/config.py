@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
-from typing import List, Union
+from typing import List, Union, Optional
 import json
 
 
@@ -10,7 +10,10 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     
     # Google Gemini API
-    GOOGLE_API_KEY: str
+    GOOGLE_API_KEY: Optional[str] = None
+    
+    # OpenAI API
+    OPENAI_API_KEY: Optional[str] = None
     
     # MongoDB
     MONGODB_URL: str = "mongodb://localhost:27017"
@@ -41,7 +44,8 @@ class Settings(BaseSettings):
         return v
     
     # LLM Settings
-    LLM_MODEL: str = "gemini-2.5-flash"  # Default model, can be overridden per request
+    LLM_PROVIDER: str = "openai"  # "gemini" or "openai"
+    LLM_MODEL: str = "gpt-4o-mini"  # Default model for the selected provider
     LLM_TEMPERATURE: float = 0.1
     LLM_MAX_TOKENS: int = 4096
     
@@ -51,7 +55,8 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
-        extra = "ignore"  # Ignore extra fields in .env file (like OPENAI_API_KEY)
+        extra = "ignore"  # Ignore extra fields in .env file
 
 
 settings = Settings()
+

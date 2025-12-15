@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, JSON, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, JSON, ForeignKey, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from app.core.config import settings
@@ -35,6 +35,7 @@ class LedgerEntry(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     items = relationship("LedgerItem", back_populates="entry", cascade="all, delete-orphan")
+    journal_entry = relationship("JournalEntry", back_populates="ledger_entry", uselist=False, cascade="all, delete-orphan")
 
 
 class LedgerItem(Base):
@@ -48,6 +49,64 @@ class LedgerItem(Base):
     line_total = Column(Float)
     
     entry = relationship("LedgerEntry", back_populates="items")
+
+
+# =============================================================================
+# Double-Entry Accounting Models
+# =============================================================================
+
+class Account(Base):
+    """Chart of Accounts - represents individual accounts in the accounting system"""
+    __tablename__ = "accounts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(20), unique=True, index=True)  # e.g., "1100", "5100"
+    name = Column(String(255), nullable=False)
+    account_type = Column(String(50), nullable=False)  # asset, liability, equity, revenue, expense
+    parent_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Self-referential relationship for parent-child accounts
+    parent = relationship("Account", remote_side=[id], backref="children")
+    journal_lines = relationship("JournalEntryLine", back_populates="account")
+
+
+class JournalEntry(Base):
+    """Double-entry journal entry - groups debit/credit lines for a transaction"""
+    __tablename__ = "journal_entries"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    ledger_entry_id = Column(Integer, ForeignKey("ledger_entries.id"), nullable=True)
+    entry_date = Column(DateTime, nullable=False)
+    reference = Column(String(100), index=True)  # Links to receipt/invoice record_id
+    description = Column(Text)
+    memo = Column(Text, nullable=True)
+    is_balanced = Column(Boolean, default=True)
+    is_adjusting = Column(Boolean, default=False)  # For adjusting entries
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    ledger_entry = relationship("LedgerEntry", back_populates="journal_entry")
+    lines = relationship("JournalEntryLine", back_populates="journal_entry", cascade="all, delete-orphan")
+
+
+class JournalEntryLine(Base):
+    """Individual debit or credit line within a journal entry"""
+    __tablename__ = "journal_entry_lines"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    journal_entry_id = Column(Integer, ForeignKey("journal_entries.id"), nullable=False)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False)
+    debit = Column(Float, default=0.0)
+    credit = Column(Float, default=0.0)
+    description = Column(String(255), nullable=True)
+    
+    # Relationships
+    journal_entry = relationship("JournalEntry", back_populates="lines")
+    account = relationship("Account", back_populates="journal_lines")
 
 
 # Create engine and session

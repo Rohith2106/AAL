@@ -3,6 +3,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain.schema import HumanMessage, SystemMessage
 from app.core.config import settings
+from app.utils.json_parser import parse_llm_json_response
 import json
 import logging
 import asyncio
@@ -28,21 +29,15 @@ async def validate_record(
     record_json = json.dumps(structured_data, indent=2)
     recon_json = json.dumps(reconciliation_info, indent=2) if reconciliation_info else "No reconciliation data"
     
-    prompt = f"""You are an expert accounting validation system. Your task is to validate extracted financial records and assign confidence scores.
+    prompt = f"""You are an expert accounting validation system. Your task is to validate extracted financial records.
 
-VALIDATION CRITERIA:
-1. Completeness: Are all critical fields present (vendor, amount, date)?
-2. Consistency: Do numbers add up correctly?
-3. Format: Are dates, amounts, and fields in correct format?
-4. Reasonableness: Are values within expected ranges?
+Given a structured JSON record, analyze it for:
+1. Completeness: Are all critical fields present?
+2. Consistency: Do the numbers add up correctly (amount + tax = total)?
+3. Format: Are dates, amounts, and other fields in correct format?
+4. Reasonableness: Are the values within expected ranges?
 5. Business logic: Does the record make business sense?
-
-CONFIDENCE SCORING GUIDELINES:
-- 0.95-1.0: All fields valid, consistent, complete, reasonable values
-- 0.85-0.94: Minor issues but record is usable
-- 0.70-0.84: Some concerns but acceptable for review
-- 0.50-0.69: Multiple issues, needs review
-- Below 0.50: Critical issues
+6. Currency: Validate the currency code is correct (ISO 4217 format: USD, IDR, ZAR, EUR, GBP, etc.)
 
 Extracted Record:
 {record_json}
@@ -50,15 +45,27 @@ Extracted Record:
 Reconciliation Information:
 {recon_json}
 
-CRITICAL INSTRUCTIONS:
-1. Return ONLY valid JSON - no text before or after
-2. All strings use double quotes, escape internal quotes with backslash
-3. No unterminated strings, no trailing commas
-4. Assign confidence based on the guidelines above
-5. For clean, complete records: confidence should be 0.90+
+Provide your validation in the following JSON format:
+{{
+    "status": "valid|invalid|warning|needs_review",
+    "issues": ["list of issues found"],
+    "confidence": 0.0-1.0,
+    "reasoning": "detailed explanation of validation",
+    "currency": "ISO currency code (e.g., USD, IDR, ZAR, EUR, GBP)",
+    "currency_validated": true/false
+}}
 
-JSON Response Format (fill in actual values):
-{{"status": "valid", "issues": [], "confidence": 0.95, "reasoning": "All fields present and consistent", "currency": "USD", "currency_validated": true}}"""
+IMPORTANT: Always include the currency field in your response. If the currency is not specified in the record, infer it from vendor location, country, or currency symbols in the text.
+
+CRITICAL JSON FORMATTING REQUIREMENTS:
+- Return ONLY the JSON object, nothing else
+- Do NOT include any explanatory text before or after the JSON
+- Do NOT wrap the JSON in markdown code blocks
+- Ensure all string values are properly escaped (use \" for quotes inside strings)
+- Ensure all brackets and braces are properly closed
+- Do NOT include trailing commas
+
+Be thorough and precise. Flag any potential issues."""
     
     try:
         logger.info("Calling LLM for validation...")
@@ -74,50 +81,18 @@ JSON Response Format (fill in actual values):
         response_text = response.content
         logger.info(f"LLM validation response received (length: {len(response_text)})")
         
-        # Parse JSON from response (handle markdown code blocks)
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0].strip()
+        # Use robust JSON parser
+        validation_data = parse_llm_json_response(response_text, default={
+            "status": "needs_review",
+            "issues": ["Failed to parse LLM response"],
+            "confidence": 0.0,
+            "reasoning": "LLM returned unparseable response",
+            "currency": structured_data.get("currency", "USD"),
+            "currency_validated": False
+        })
         
-        # Try to extract and parse JSON
-        validation_data = None
-        
-        # First attempt: direct JSON parse
-        try:
-            validation_data = json.loads(response_text)
-        except json.JSONDecodeError as json_err:
-            logger.warning(f"Direct JSON parsing failed: {json_err}")
-            
-            # Fallback 1: Find JSON using non-greedy regex and smart extraction
-            import re
-            json_matches = re.finditer(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text)
-            for json_match in json_matches:
-                try:
-                    potential_json = json_match.group(0)
-                    validation_data = json.loads(potential_json)
-                    break
-                except json.JSONDecodeError:
-                    continue
-            
-            # Fallback 2: Try to fix common JSON issues
-            if validation_data is None:
-                try:
-                    # Remove trailing commas and fix common issues
-                    fixed_response = response_text.replace(',}', '}').replace(',]', ']')
-                    validation_data = json.loads(fixed_response)
-                except json.JSONDecodeError:
-                    pass
-        
-        # If all parsing fails, create default validation response
-        if validation_data is None:
-            logger.warning("Could not parse JSON from LLM response, using default validation")
-            validation_data = {
-                "status": "needs_review",
-                "issues": ["Could not parse LLM validation response"],
-                "confidence": 0.0,
-                "reasoning": "Validation response was malformed"
-            }
+        if not validation_data or "status" not in validation_data:
+            raise ValueError("Could not find valid JSON in LLM response")
         
         return {
             "status": validation_data.get("status", "needs_review"),
@@ -183,18 +158,30 @@ Reconciliation Info:
 Validation Result:
 {validation_json}
 
-CRITICAL: Respond ONLY with valid JSON. Do NOT add any text before or after.
+Generate a detailed reasoning trace showing:
+1. Initial analysis of the record
+2. Field-by-field examination
+3. Cross-field consistency checks
+4. Reconciliation analysis (if applicable)
+5. Final conclusion
 
-Generate a detailed reasoning trace with these exact fields:
-{{"steps": [{{" step": 1, "action": "...", "observation": "...", "conclusion": "..."}}], "final_conclusion": "summary", "confidence_score": 0.85}}
+Format as JSON:
+{{
+    "steps": [
+        {{"step": 1, "action": "analyzed field X", "observation": "...", "conclusion": "..."}},
+        ...
+    ],
+    "final_conclusion": "summary of reasoning",
+    "confidence_score": 0.0-1.0
+}}
 
-Important:
-- Each step must have: step number, action, observation, conclusion
-- All strings must use double quotes
-- Escape any quotes within strings using backslash
-- No unterminated strings
-- No trailing commas
-- confidence_score between 0.0 and 1.0"""
+CRITICAL JSON FORMATTING REQUIREMENTS:
+- Return ONLY the JSON object, nothing else
+- Do NOT include any explanatory text before or after the JSON
+- Do NOT wrap the JSON in markdown code blocks
+- Ensure all string values are properly escaped (use \" for quotes inside strings)
+- Ensure all brackets and braces are properly closed
+- Do NOT include trailing commas"""
     
     try:
         logger.info("Calling LLM for reasoning trace...")
@@ -210,46 +197,12 @@ Important:
         response_text = response.content
         logger.info(f"LLM reasoning trace response received (length: {len(response_text)})")
         
-        # Parse JSON
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0].strip()
-        
-        # Robust JSON parsing with fallback
-        trace_data = None
-        try:
-            trace_data = json.loads(response_text)
-        except json.JSONDecodeError as json_err:
-            logger.warning(f"JSON parsing failed for reasoning trace: {json_err}")
-            
-            # Fallback 1: Try to find JSON objects with a non-greedy match
-            import re
-            json_matches = re.finditer(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text)
-            for json_match in json_matches:
-                try:
-                    potential_json = json_match.group(0)
-                    trace_data = json.loads(potential_json)
-                    break
-                except json.JSONDecodeError:
-                    continue
-            
-            # Fallback 2: Try to fix common JSON issues
-            if trace_data is None:
-                try:
-                    fixed_response = response_text.replace(',}', '}').replace(',]', ']')
-                    trace_data = json.loads(fixed_response)
-                except json.JSONDecodeError:
-                    logger.warning("Could not parse reasoning trace JSON")
-        
-        # Use default if parsing failed
-        if trace_data is None:
-            logger.warning("Could not parse reasoning trace JSON, using default")
-            trace_data = {
-                "steps": [],
-                "final_conclusion": "Reasoning trace unavailable",
-                "confidence_score": 0.0
-            }
+        # Use robust JSON parser
+        trace_data = parse_llm_json_response(response_text, default={
+            "steps": [],
+            "final_conclusion": "Failed to parse reasoning trace",
+            "confidence_score": 0.0
+        })
         
         return {
             "steps": trace_data.get("steps", []),
@@ -336,7 +289,7 @@ async def orchestrate(
     Main orchestration method
     
     Returns:
-        Complete orchestration output with validation, reasoning, explanation, and accuracy metrics
+        Complete orchestration output with validation, reasoning, and explanation
     """
     record_id = structured_data.get("record_id", f"record_{datetime.now().timestamp()}")
     structured_data["record_id"] = record_id

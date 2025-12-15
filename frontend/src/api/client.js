@@ -11,10 +11,10 @@ const client = axios.create({
 
 export const api = {
   // Process receipt (single)
-  async processReceipt(file, ocrEngine = 'easyocr', recordId = null) {
+  async processReceipt(file, ocrEngine = 'easyocr', recordId = null, language = 'en') {
     const formData = new FormData()
     formData.append('file', file)
-    const params = { ocr_engine: ocrEngine }
+    const params = { ocr_engine: ocrEngine, language }
     if (recordId) {
       params.record_id = recordId
     }
@@ -27,14 +27,14 @@ export const api = {
   },
 
   // Process multiple receipts (batch)
-  async processReceiptsBatch(files, ocrEngine = 'easyocr') {
+  async processReceiptsBatch(files, ocrEngine = 'easyocr', language = 'en') {
     const formData = new FormData()
     // FastAPI expects multiple files with the same parameter name
     for (const file of files) {
       formData.append('files', file)
     }
     return client.post('/process-receipts-batch', formData, {
-      params: { ocr_engine: ocrEngine },
+      params: { ocr_engine: ocrEngine, language },
       headers: {
         'Content-Type': 'multipart/form-data',
       },

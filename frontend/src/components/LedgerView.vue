@@ -3,20 +3,20 @@
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
-        <h2 class="text-xl lg:text-2xl font-bold text-gray-800">Transaction Ledger</h2>
-        <p class="text-sm lg:text-base text-gray-500 mt-1">Manage and track your financial records</p>
+        <h2 class="text-xl lg:text-2xl font-bold text-gray-800">{{ t('ledger.title') }}</h2>
+        <p class="text-sm lg:text-base text-gray-500 mt-1">{{ t('ledger.subtitle') }}</p>
       </div>
       <div class="flex gap-2 sm:gap-3">
         <button
           @click="exportToCSV"
           class="px-3 sm:px-4 py-2 bg-white/50 hover:bg-white/80 text-gray-700 rounded-xl text-sm font-medium transition-all duration-200 border border-white/40 shadow-sm backdrop-blur-sm">
-          <span class="hidden sm:inline">Export CSV</span>
+          <span class="hidden sm:inline">{{ t('ledger.exportCsv') }}</span>
           <span class="sm:hidden">📊</span>
         </button>
         <button
           @click="showManualEntryModal = true"
           class="px-3 sm:px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-lg shadow-gray-900/20">
-          <span class="hidden sm:inline">Add Manual Entry</span>
+          <span class="hidden sm:inline">{{ t('ledger.addManual') }}</span>
           <span class="sm:hidden">+</span>
         </button>
       </div>
@@ -26,23 +26,23 @@
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-6">
       <div
         class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 p-4 lg:p-6 shadow-lg shadow-gray-200/20 hover:scale-[1.02] transition-transform duration-300">
-        <div class="text-xs lg:text-sm font-medium text-gray-500 uppercase tracking-wider">Total</div>
+        <div class="text-xs lg:text-sm font-medium text-gray-500 uppercase tracking-wider">{{ t('ledger.total') }}</div>
         <div class="text-2xl lg:text-3xl font-bold text-gray-800 mt-2">{{ stats.total_entries || 0 }}</div>
       </div>
       <div
         class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 p-4 lg:p-6 shadow-lg shadow-gray-200/20 hover:scale-[1.02] transition-transform duration-300">
-        <div class="text-xs lg:text-sm font-medium text-gray-500 uppercase tracking-wider">Amount</div>
+        <div class="text-xs lg:text-sm font-medium text-gray-500 uppercase tracking-wider">{{ t('ledger.amount') }}</div>
         <div class="text-2xl lg:text-3xl font-bold text-gray-800 mt-2">${{ (stats.total_amount || 0).toFixed(2) }}</div>
-        <div class="text-xs text-gray-400 mt-1">USD (converted)</div>
+        <div class="text-xs text-gray-400 mt-1">{{ t('ledger.usdConverted') }}</div>
       </div>
       <div
         class="bg-green-50/40 backdrop-blur-md rounded-2xl border border-green-100/40 p-4 lg:p-6 shadow-lg shadow-green-900/5 hover:scale-[1.02] transition-transform duration-300">
-        <div class="text-xs lg:text-sm font-medium text-green-600 uppercase tracking-wider">Validated</div>
+        <div class="text-xs lg:text-sm font-medium text-green-600 uppercase tracking-wider">{{ t('ledger.validated') }}</div>
         <div class="text-2xl lg:text-3xl font-bold text-green-700 mt-2">{{ stats.validated_entries || 0 }}</div>
       </div>
       <div
         class="bg-yellow-50/40 backdrop-blur-md rounded-2xl border border-yellow-100/40 p-4 lg:p-6 shadow-lg shadow-yellow-900/5 hover:scale-[1.02] transition-transform duration-300">
-        <div class="text-xs lg:text-sm font-medium text-yellow-600 uppercase tracking-wider">Pending</div>
+        <div class="text-xs lg:text-sm font-medium text-yellow-600 uppercase tracking-wider">{{ t('ledger.pending') }}</div>
         <div class="text-2xl lg:text-3xl font-bold text-yellow-700 mt-2">{{ stats.pending_entries || 0 }}</div>
       </div>
     </div>
@@ -52,14 +52,14 @@
       class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 p-4 lg:p-6 shadow-lg shadow-gray-200/20">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
         <div>
-          <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Status</label>
+          <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{{ t('ledger.status') }}</label>
           <div class="relative">
             <select v-model="filters.status" @change="loadLedger"
               class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all appearance-none cursor-pointer">
-              <option value="">All Statuses</option>
-              <option value="validated">Validated</option>
-              <option value="pending">Pending</option>
-              <option value="rejected">Rejected</option>
+              <option value="">{{ t('ledger.allStatuses') }}</option>
+              <option value="validated">{{ t('ledger.validated') }}</option>
+              <option value="pending">{{ t('ledger.pending') }}</option>
+              <option value="rejected">{{ t('ledger.rejected') }}</option>
             </select>
             <div class="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -69,9 +69,9 @@
           </div>
         </div>
         <div>
-          <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Vendor</label>
+          <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{{ t('ledger.vendor') }}</label>
           <div class="relative">
-            <input v-model="filters.vendor" @input="debounceLoadLedger" type="text" placeholder="Search vendor..."
+            <input v-model="filters.vendor" @input="debounceLoadLedger" type="text" :placeholder="t('ledger.searchVendor')"
               class="w-full px-4 py-3 bg-white/50 border border-white/40 rounded-xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all pl-10" />
             <div class="absolute inset-y-0 left-0 flex items-center px-3 pointer-events-none text-gray-400">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -84,7 +84,7 @@
         <div class="flex items-end">
           <button @click="clearFilters"
             class="px-6 py-3 rounded-xl font-medium transition-all duration-200 bg-gray-100/50 hover:bg-gray-200/50 text-gray-600 w-full border border-transparent hover:border-gray-200">
-            Clear Filters
+            {{ t('ledger.clearFilters') }}
           </button>
         </div>
       </div>
@@ -98,14 +98,14 @@
           <thead class="bg-gray-50/50">
             <tr>
               <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-8"></th>
-              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
-              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Vendor</th>
-              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount</th>
-              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Total</th>
-              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Confidence
+              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('ledger.date') }}</th>
+              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('ledger.vendor') }}</th>
+              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('ledger.amount') }}</th>
+              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('ledger.total') }}</th>
+              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('ledger.status') }}</th>
+              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('ledger.confidence') }}
               </th>
-              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('ledger.actions') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-200/50">
@@ -524,6 +524,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../api/client'
+import { useI18n } from '../i18n/i18n.js'
+
+const { t } = useI18n()
 
 const ledgerEntries = ref([])
 const stats = ref({})

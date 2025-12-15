@@ -1,4 +1,3 @@
-```html
 <template>
   <div class="min-h-screen bg-[#F3F4F6] font-sans flex overflow-hidden">
     <!-- Mobile Menu Overlay -->
@@ -7,6 +6,15 @@
       class="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-40 lg:hidden"
       @click="mobileMenuOpen = false"
     ></div>
+
+    <!-- Language Toggle Button (Top Right) -->
+    <button 
+      @click="toggleLocale"
+      class="fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-xl border border-white/40 shadow-xl rounded-2xl transition-all duration-300 hover:scale-105 hover:shadow-2xl"
+    >
+      <span class="text-lg">{{ locale === 'en' ? '🇺🇸' : '🇯🇵' }}</span>
+      <span class="text-sm font-medium text-gray-700">{{ locale === 'en' ? 'EN' : 'JA' }}</span>
+    </button>
 
     <!-- Sidebar -->
     <aside 
@@ -21,8 +29,8 @@
           <span class="text-white font-bold text-xl lg:text-2xl">A</span>
         </div>
         <div>
-          <h1 class="text-lg lg:text-xl font-bold text-gray-800 tracking-tight">Accounting</h1>
-          <p class="text-xs text-gray-500 font-medium uppercase tracking-wider">Automation</p>
+          <h1 class="text-lg lg:text-xl font-bold text-gray-800 tracking-tight">{{ t('nav.accounting') }}</h1>
+          <p class="text-xs text-gray-500 font-medium uppercase tracking-wider">{{ t('nav.automation') }}</p>
         </div>
         <!-- Close button for mobile -->
         <button 
@@ -38,7 +46,7 @@
       <!-- Navigation -->
       <nav class="flex-1 px-4 space-y-2 mt-2">
         <button
-          v-for="tab in tabs"
+          v-for="tab in translatedTabs"
           :key="tab.id"
           @click="activeTab = tab.id; mobileMenuOpen = false"
           :class="[
@@ -83,7 +91,7 @@
 
           <!-- Content Transition -->
           <transition name="fade" mode="out-in">
-            <div :key="activeTab + (selectedTransaction || '')" class="h-full relative z-10">
+            <div :key="activeTab + (selectedTransaction || '') + locale" class="h-full relative z-10">
                <UploadReceipt v-if="activeTab === 'upload'" @receipt-processed="handleReceiptProcessed" />
                
                <TransactionDetail 
@@ -108,21 +116,25 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import UploadReceipt from './components/UploadReceipt.vue'
 import LedgerView from './components/LedgerView.vue'
 import TransactionDetail from './components/TransactionDetail.vue'
 import ChatInterface from './components/ChatInterface.vue'
+import { useI18n } from './i18n/i18n.js'
+
+const { locale, t, toggleLocale } = useI18n()
 
 const activeTab = ref('upload')
 const mobileMenuOpen = ref(false)
 const selectedTransaction = ref(null)
 
-const tabs = [
-  { id: 'upload', name: 'Upload Receipt', icon: '📤' },
-  { id: 'ledger', name: 'Transactions', icon: '📊' },
-  { id: 'chat', name: 'AI Assistant', icon: '✨' },
-]
+// Tabs with translated names
+const translatedTabs = computed(() => [
+  { id: 'upload', name: t('nav.uploadReceipt'), icon: '📤' },
+  { id: 'ledger', name: t('nav.transactions'), icon: '📊' },
+  { id: 'chat', name: t('nav.aiAssistant'), icon: '✨' },
+])
 
 const handleReceiptProcessed = (data) => {
   activeTab.value = 'ledger'
@@ -172,4 +184,3 @@ const handleTransactionDeleted = () => {
   background: rgba(156, 163, 175, 0.5);
 }
 </style>
-```

@@ -3,13 +3,13 @@
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 flex-shrink-0">
       <div>
-        <h2 class="text-xl lg:text-2xl font-bold text-gray-800">AI Assistant</h2>
-        <p class="text-sm lg:text-base text-gray-500 mt-1">Ask questions about your financial data</p>
+        <h2 class="text-xl lg:text-2xl font-bold text-gray-800">{{ t('chat.title') }}</h2>
+        <p class="text-sm lg:text-base text-gray-500 mt-1">{{ t('chat.subtitle') }}</p>
       </div>
       
       <!-- Model Selection -->
       <div class="flex items-center gap-2">
-        <label class="text-xs font-semibold text-gray-600">Model:</label>
+        <label class="text-xs font-semibold text-gray-600">{{ t('chat.model') }}:</label>
         <select v-model="selectedModel"
           class="px-3 py-2 bg-white/80 border border-white/50 rounded-xl text-sm font-medium focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all min-w-[200px]">
           <option v-for="model in geminiModels" :key="model" :value="model">
@@ -43,7 +43,7 @@
             
             <!-- Sources -->
             <div v-if="message.sources?.length" class="mt-4 pt-4 border-t border-gray-200/20">
-              <p class="text-xs font-bold uppercase tracking-wider opacity-70 mb-2">Sources</p>
+              <p class="text-xs font-bold uppercase tracking-wider opacity-70 mb-2">{{ t('chat.sources') }}</p>
               <div class="space-y-2">
                 <div 
                   v-for="(source, i) in message.sources" 
@@ -51,7 +51,7 @@
                   class="bg-black/5 rounded-lg p-2 text-xs flex justify-between items-center"
                 >
                   <span class="font-medium truncate max-w-[70%]">{{ source.vendor }}</span>
-                  <span class="opacity-70">{{ (source.similarity * 100).toFixed(0) }}% match</span>
+                  <span class="opacity-70">{{ (source.similarity * 100).toFixed(0) }}% {{ t('chat.match') }}</span>
                 </div>
               </div>
             </div>
@@ -90,7 +90,7 @@
           <input
             v-model="inputMessage"
             type="text"
-            placeholder="Ask about receipts, invoices, or ledger entries..."
+            :placeholder="t('chat.placeholder')"
             class="w-full pl-6 pr-14 py-4 bg-white/80 border border-white/50 rounded-2xl focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 outline-none transition-all shadow-inner placeholder-gray-400"
             :disabled="loading"
           />
@@ -110,13 +110,16 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { api } from '../api/client'
+import { useI18n } from '../i18n/i18n.js'
+
+const { t, locale } = useI18n()
 
 const messages = ref([
   {
     role: 'assistant',
-    content: 'Hello! I can help you query your ledger and receipts. Ask me anything about your transactions, vendors, or amounts.',
+    content: computed(() => t('chat.greeting')).value,
     sources: null
   }
 ])
@@ -134,12 +137,13 @@ const geminiModels = [
   'gemini-flash-lite-latest'
 ]
 
-const exampleQuestions = [
-  'What is the total amount spent?',
-  'Show me all transactions from last month',
-  'Which vendor has the highest total?',
-  'Find receipts with tax over $100'
-]
+// Example questions - computed to react to locale changes
+const exampleQuestions = computed(() => [
+  t('chat.totalSpent'),
+  t('chat.lastMonth'),
+  t('chat.highestVendor'),
+  t('chat.taxOver')
+])
 
 const sendMessage = async () => {
   if (!inputMessage.value.trim() || loading.value) return
@@ -166,7 +170,7 @@ const sendMessage = async () => {
     console.error('Error sending message:', error)
     messages.value.push({
       role: 'assistant',
-      content: 'Sorry, I encountered an error. Please try again.',
+      content: t('chat.error'),
       sources: null
     })
   } finally {

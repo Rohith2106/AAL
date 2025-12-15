@@ -3,8 +3,8 @@
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
-        <h2 class="text-xl lg:text-2xl font-bold text-gray-800">Upload Receipt</h2>
-        <p class="text-sm lg:text-base text-gray-500 mt-1">Drag and drop your files to process them automatically</p>
+        <h2 class="text-xl lg:text-2xl font-bold text-gray-800">{{ t('upload.title') }}</h2>
+        <p class="text-sm lg:text-base text-gray-500 mt-1">{{ t('upload.subtitle') }}</p>
       </div>
     </div>
 
@@ -39,9 +39,9 @@
           </div>
           <div>
             <p class="text-xl font-bold text-gray-700 group-hover:text-primary-600 transition-colors">
-              Drop your receipts here
+              {{ t('upload.dropHere') }}
             </p>
-            <p class="text-gray-500 mt-2">or click to browse files</p>
+            <p class="text-gray-500 mt-2">{{ t('upload.browse') }}</p>
           </div>
           <div class="flex items-center justify-center gap-2 text-xs text-gray-400 uppercase tracking-wider font-medium mt-4">
             <span class="px-2 py-1 bg-gray-100 rounded">JPG</span>
@@ -93,30 +93,74 @@
       </div>
 
       <!-- OCR Engine Selection -->
-      <div v-if="!processing && !batchResults" class="mt-8 flex justify-center">
-        <div class="inline-flex bg-gray-100/50 p-1 rounded-xl border border-gray-200/50">
-          <button
-            @click="ocrEngine = 'easyocr'"
-            :class="[
-              'px-6 py-2 rounded-lg text-sm font-medium transition-all duration-200',
-              ocrEngine === 'easyocr'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            ]"
-          >
-            EasyOCR (Recommended)
-          </button>
-          <button
-            @click="ocrEngine = 'tesseract'"
-            :class="[
-              'px-6 py-2 rounded-lg text-sm font-medium transition-all duration-200',
-              ocrEngine === 'tesseract'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            ]"
-          >
-            Tesseract
-          </button>
+      <div v-if="!processing && !batchResults" class="mt-8 space-y-4">
+        <!-- Engine Selection -->
+        <div class="flex flex-col items-center gap-2">
+          <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('upload.ocrEngine') }}</span>
+          <div class="inline-flex bg-gray-100/50 p-1 rounded-xl border border-gray-200/50">
+            <button
+              @click="ocrEngine = 'easyocr'"
+              :class="[
+                'px-6 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+                ocrEngine === 'easyocr'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              ]"
+            >
+              EasyOCR ({{ t('upload.recommended') }})
+            </button>
+            <button
+              @click="ocrEngine = 'tesseract'"
+              :class="[
+                'px-6 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+                ocrEngine === 'tesseract'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              ]"
+            >
+              Tesseract
+            </button>
+          </div>
+        </div>
+        
+        <!-- OCR Language Selection -->
+        <div class="flex flex-col items-center gap-2">
+          <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('upload.ocrLanguage') }}</span>
+          <div class="inline-flex bg-gray-100/50 p-1 rounded-xl border border-gray-200/50">
+            <button
+              @click="ocrLanguage = 'en'"
+              :class="[
+                'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-1',
+                ocrLanguage === 'en'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              ]"
+            >
+              🇺🇸 {{ t('upload.english') }}
+            </button>
+            <button
+              @click="ocrLanguage = 'ja'"
+              :class="[
+                'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-1',
+                ocrLanguage === 'ja'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              ]"
+            >
+              🇯🇵 {{ t('upload.japanese') }}
+            </button>
+            <button
+              @click="ocrLanguage = 'en_ja'"
+              :class="[
+                'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-1',
+                ocrLanguage === 'en_ja'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              ]"
+            >
+              🌐 {{ t('upload.both') }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -161,7 +205,7 @@
 
       <div class="flex justify-center mt-8">
         <button @click="reset" class="px-8 py-3 rounded-xl font-bold transition-all duration-200 bg-gray-900 text-white hover:bg-gray-800 shadow-lg shadow-gray-900/20 hover:scale-[1.02]">
-          Upload More Files
+          {{ t('upload.uploadMore') }}
         </button>
       </div>
     </div>
@@ -253,6 +297,9 @@
 <script setup>
 import { ref } from 'vue'
 import { api } from '../api/client'
+import { useI18n } from '../i18n/i18n.js'
+
+const { t } = useI18n()
 
 const emit = defineEmits(['receipt-processed'])
 
@@ -264,6 +311,7 @@ const progress = ref(0)
 const result = ref(null)
 const batchResults = ref(null)
 const ocrEngine = ref('easyocr')
+const ocrLanguage = ref('en')
 const processingFileCount = ref(0)
 const currentFileIndex = ref(0)
 const logMessages = ref([])
@@ -374,8 +422,8 @@ const processFiles = async (files) => {
       // Small delay to ensure connection is established
       await new Promise(resolve => setTimeout(resolve, 100))
       
-      // Start processing with the record_id
-      const response = await api.processReceipt(files[0], ocrEngine.value, recordId)
+      // Start processing with the record_id and language
+      const response = await api.processReceipt(files[0], ocrEngine.value, recordId, ocrLanguage.value)
       result.value = response.data
       batchResults.value = null
       
@@ -395,7 +443,7 @@ const processFiles = async (files) => {
       processingMessage.value = `Processing ${files.length} files in batch...`
       progress.value = 30
 
-      const response = await api.processReceiptsBatch(files, ocrEngine.value)
+      const response = await api.processReceiptsBatch(files, ocrEngine.value, ocrLanguage.value)
       batchResults.value = response.data
       result.value = null
       progress.value = 100

@@ -9,8 +9,8 @@
         </svg>
       </button>
       <div>
-        <h2 class="text-2xl font-bold text-gray-800">Transaction Details</h2>
-        <p class="text-sm text-gray-500 mt-1">{{ entry?.record_id || 'Loading...' }}</p>
+        <h2 class="text-2xl font-bold text-gray-800">{{ t('detail.title') }}</h2>
+        <p class="text-sm text-gray-500 mt-1">{{ entry?.record_id || t('detail.loading') }}</p>
       </div>
     </div>
 
@@ -28,19 +28,19 @@
       <!-- Info Cards -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 p-6 shadow-lg">
-          <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">Vendor</label>
-          <p class="text-lg font-semibold text-gray-900 mt-2">{{ entry.vendor || 'N/A' }}</p>
+          <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">{{ t('detail.vendor') }}</label>
+          <p class="text-lg font-semibold text-gray-900 mt-2">{{ entry.vendor || t('common.na') }}</p>
         </div>
         <div class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 p-6 shadow-lg">
-          <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">Date</label>
-          <p class="text-lg font-semibold text-gray-900 mt-2">{{ entry.date || 'N/A' }}</p>
+          <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">{{ t('detail.date') }}</label>
+          <p class="text-lg font-semibold text-gray-900 mt-2">{{ entry.date || t('common.na') }}</p>
         </div>
         <div class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 p-6 shadow-lg">
-          <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total</label>
+          <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">{{ t('detail.total') }}</label>
           <p class="text-2xl font-bold text-gray-900 mt-2">{{ formatCurrency(entry.total || 0, entry.currency) }}</p>
         </div>
         <div class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 p-6 shadow-lg">
-          <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">Status</label>
+          <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">{{ t('detail.status') }}</label>
           <span :class="[
             'inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border mt-2',
             entry.status === 'validated'
@@ -62,18 +62,18 @@
       <!-- Line Items Table -->
       <div class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 overflow-hidden shadow-xl">
         <div class="px-6 py-4 border-b border-gray-200/50 bg-gray-50/50">
-          <h3 class="text-lg font-bold text-gray-800">Line Items</h3>
-          <p class="text-sm text-gray-500 mt-1">{{ entry.items?.length || 0 }} items</p>
+          <h3 class="text-lg font-bold text-gray-800">{{ t('detail.lineItems') }}</h3>
+          <p class="text-sm text-gray-500 mt-1">{{ entry.items?.length || 0 }} {{ t('detail.items') }}</p>
         </div>
         
         <div class="overflow-x-auto">
           <table v-if="entry.items && entry.items.length > 0" class="min-w-full divide-y divide-gray-200/50">
             <thead class="bg-gray-50/50">
               <tr>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Item</th>
-                <th class="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Quantity</th>
-                <th class="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Unit Price</th>
-                <th class="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Total</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('detail.item') }}</th>
+                <th class="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('detail.quantity') }}</th>
+                <th class="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('detail.unitPrice') }}</th>
+                <th class="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('detail.total') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-200/50">
@@ -86,15 +86,15 @@
             </tbody>
             <tfoot class="bg-gray-50/50">
               <tr>
-                <td colspan="3" class="px-6 py-4 text-sm font-bold text-gray-800 text-right">Subtotal:</td>
+                <td colspan="3" class="px-6 py-4 text-sm font-bold text-gray-800 text-right">{{ t('detail.subtotal') }}:</td>
                 <td class="px-6 py-4 text-sm font-bold text-gray-900 text-right">{{ formatCurrency(entry.amount || 0, entry.currency) }}</td>
               </tr>
               <tr v-if="entry.tax">
-                <td colspan="3" class="px-6 py-4 text-sm font-bold text-gray-800 text-right">Tax:</td>
+                <td colspan="3" class="px-6 py-4 text-sm font-bold text-gray-800 text-right">{{ t('detail.tax') }}:</td>
                 <td class="px-6 py-4 text-sm font-bold text-gray-900 text-right">{{ formatCurrency(entry.tax || 0, entry.currency) }}</td>
               </tr>
               <tr class="border-t-2 border-gray-300">
-                <td colspan="3" class="px-6 py-4 text-base font-bold text-gray-800 text-right">Total:</td>
+                <td colspan="3" class="px-6 py-4 text-base font-bold text-gray-800 text-right">{{ t('detail.total') }}:</td>
                 <td class="px-6 py-4 text-base font-bold text-gray-900 text-right">{{ formatCurrency(entry.total || 0, entry.currency) }}</td>
               </tr>
             </tfoot>
@@ -105,7 +105,73 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                 d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
             </svg>
-            <p class="text-lg font-medium">No line items available</p>
+            <p class="text-lg font-medium">{{ t('detail.noLineItems') }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Journal Entry (Double-Entry Accounting) -->
+      <div class="bg-white/40 backdrop-blur-md rounded-2xl border border-white/40 overflow-hidden shadow-xl">
+        <div class="px-6 py-4 border-b border-gray-200/50 bg-gradient-to-r from-blue-50/50 to-purple-50/50">
+          <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path>
+            </svg>
+            {{ t('accounting.journalEntry') }}
+          </h3>
+          <p class="text-sm text-gray-500 mt-1">{{ t('accounting.doubleEntry') }}</p>
+        </div>
+        
+        <div class="overflow-x-auto">
+          <table v-if="entry.journal_entry && entry.journal_entry.lines?.length > 0" class="min-w-full divide-y divide-gray-200/50">
+            <thead class="bg-gray-50/50">
+              <tr>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('accounting.accountCode') }}</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('accounting.accountName') }}</th>
+                <th class="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('accounting.debit') }}</th>
+                <th class="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('accounting.credit') }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200/50">
+              <tr v-for="line in entry.journal_entry.lines" :key="line.id" class="hover:bg-white/40 transition-colors">
+                <td class="px-6 py-4 text-sm text-gray-600 font-mono">{{ line.account_code }}</td>
+                <td class="px-6 py-4 text-sm text-gray-900 font-medium">{{ line.account_name }}</td>
+                <td class="px-6 py-4 text-sm text-right" :class="line.debit > 0 ? 'text-blue-700 font-bold' : 'text-gray-400'">
+                  {{ line.debit > 0 ? formatCurrency(line.debit, entry.currency) : '-' }}
+                </td>
+                <td class="px-6 py-4 text-sm text-right" :class="line.credit > 0 ? 'text-purple-700 font-bold' : 'text-gray-400'">
+                  {{ line.credit > 0 ? formatCurrency(line.credit, entry.currency) : '-' }}
+                </td>
+              </tr>
+            </tbody>
+            <tfoot class="bg-gray-50/50">
+              <tr class="border-t-2 border-gray-300">
+                <td colspan="2" class="px-6 py-4 text-sm font-bold text-gray-800 text-right">{{ t('accounting.totalDebits') }} / {{ t('accounting.totalCredits') }}:</td>
+                <td class="px-6 py-4 text-sm font-bold text-blue-700 text-right">{{ formatCurrency(entry.journal_entry.total_debits || 0, entry.currency) }}</td>
+                <td class="px-6 py-4 text-sm font-bold text-purple-700 text-right">{{ formatCurrency(entry.journal_entry.total_credits || 0, entry.currency) }}</td>
+              </tr>
+              <tr>
+                <td colspan="4" class="px-6 py-2 text-center">
+                  <span v-if="entry.journal_entry.is_balanced" 
+                    class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-50/50 text-green-700 border border-green-200/50">
+                    <span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5"></span>
+                    {{ t('accounting.balanced') }}
+                  </span>
+                  <span v-else
+                    class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-red-50/50 text-red-700 border border-red-200/50">
+                    <span class="w-1.5 h-1.5 rounded-full bg-red-500 mr-1.5"></span>
+                    {{ t('accounting.unbalanced') }}
+                  </span>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+          
+          <div v-else class="text-center py-8 text-gray-500">
+            <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path>
+            </svg>
+            <p class="text-sm font-medium">{{ t('accounting.noJournalEntry') }}</p>
           </div>
         </div>
       </div>
@@ -114,23 +180,23 @@
       <div v-if="entry.status === 'pending'" class="flex gap-4">
         <button @click="updateStatus('validated')"
           class="flex-1 px-6 py-3 rounded-xl font-bold transition-all duration-200 bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-600/20">
-          Validate Transaction
+          {{ t('detail.validate') }}
         </button>
         <button @click="updateStatus('rejected')"
           class="flex-1 px-6 py-3 rounded-xl font-bold transition-all duration-200 bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-600/20">
-          Reject Transaction
+          {{ t('detail.reject') }}
         </button>
       </div>
 
       <button @click="confirmDelete"
         class="w-full px-6 py-3 rounded-xl font-medium transition-all duration-200 bg-red-100 hover:bg-red-200 text-red-700 border border-red-200">
-        Delete Transaction
+        {{ t('detail.delete') }}
       </button>
     </div>
 
     <!-- Error State -->
     <div v-else class="text-center py-12 text-gray-500">
-      <p class="text-lg font-medium">Transaction not found</p>
+      <p class="text-lg font-medium">{{ t('detail.notFound') }}</p>
     </div>
   </div>
 </template>
@@ -138,6 +204,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../api/client'
+import { useI18n } from '../i18n/i18n.js'
+
+const { t } = useI18n()
 
 const props = defineProps({
   recordId: {

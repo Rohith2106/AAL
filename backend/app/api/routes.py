@@ -56,6 +56,7 @@ async def stream_process_logs(record_id: str):
 async def process_receipt(
     file: UploadFile = File(...),
     ocr_engine: str = Query(default="easyocr", description="OCR engine: tesseract or easyocr"),
+    language: str = Query(default="en", description="OCR language: en (English), ja (Japanese), or en_ja (both)"),
     record_id: Optional[str] = Query(default=None, description="Optional record ID for log streaming")
 ):
     """
@@ -106,28 +107,26 @@ async def process_receipt(
             file_ext = file.filename.split('.')[-1].lower() if file.filename else ''
             
             # Step 1: OCR Extraction
-            logger.info(f"Processing file {file.filename} with OCR engine: {ocr_engine}")
+            logger.info(f"Processing file {file.filename} with OCR engine: {ocr_engine}, language: {language}")
             if file_ext == 'pdf':
-                ocr_result = await extract_text_from_pdf(file_bytes)
-                # Extract text from PDF result (dict)
-                raw_text = ocr_result.get("text") if isinstance(ocr_result, dict) else ocr_result
-                ocr_metrics = ocr_result.get("metrics") if isinstance(ocr_result, dict) else {}
+                raw_text = await extract_text_from_pdf(file_bytes, language=language)
             else:
-                ocr_result = await extract_text_from_image(file_bytes, ocr_engine)
-                # Extract text from image result (now returns dict with metrics)
-                raw_text = ocr_result.get("text") if isinstance(ocr_result, dict) else ocr_result
-                ocr_metrics = ocr_result.get("metrics") if isinstance(ocr_result, dict) else {}
+                raw_text = await extract_text_from_image(file_bytes, ocr_engine, language=language)
             
             if not raw_text:
                 raise HTTPException(status_code=400, detail="No text extracted from image")
             
-            # Log OCR metrics if available
-            if ocr_metrics:
-                logger.info(f"OCR Metrics - Confidence: {ocr_metrics.get('confidence_metrics', {}).get('average_confidence', 'N/A')}")
-            
             # Step 2: Data Extraction
             structured_data = await parse_receipt_text(raw_text)
             structured_data["record_id"] = record_id
+            
+            # DEBUG: Log items extraction
+            items_count = len(structured_data.get("items", []))
+            logger.info(f"Extracted {items_count} items from receipt")
+            if items_count > 0:
+                logger.info(f"Items: {structured_data.get('items')[:3]}...")  # Log first 3
+            else:
+                logger.warning("No items extracted from receipt!")
             
             # Step 2.5: Classify transaction using LLM
             if not structured_data.get("category"):
@@ -217,7 +216,8 @@ async def process_receipt(
 @router.post("/process-receipts-batch", response_model=ProcessMultipleReceiptsResponse)
 async def process_multiple_receipts(
     files: ListType[UploadFile] = File(..., description="Multiple receipt/invoice files"),
-    ocr_engine: str = Query(default="easyocr", description="OCR engine: tesseract or easyocr")
+    ocr_engine: str = Query(default="easyocr", description="OCR engine: tesseract or easyocr"),
+    language: str = Query(default="en", description="OCR language: en (English), ja (Japanese), or en_ja (both)")
 ):
     """
     Process multiple receipts/invoices in batch
@@ -243,13 +243,11 @@ async def process_multiple_receipts(
             file_ext = file.filename.split('.')[-1].lower() if file.filename else ''
             
             # Step 1: OCR Extraction
-            logger.info(f"Processing file {file.filename} with OCR engine: {ocr_engine}")
+            logger.info(f"Processing file {file.filename} with OCR engine: {ocr_engine}, language: {language}")
             if file_ext == 'pdf':
-                ocr_result = await extract_text_from_pdf(file_bytes)
-                raw_text = ocr_result.get("text") if isinstance(ocr_result, dict) else ocr_result
+                raw_text = await extract_text_from_pdf(file_bytes, language=language)
             else:
-                ocr_result = await extract_text_from_image(file_bytes, ocr_engine)
-                raw_text = ocr_result.get("text") if isinstance(ocr_result, dict) else ocr_result
+                raw_text = await extract_text_from_image(file_bytes, ocr_engine, language=language)
             
             if not raw_text:
                 raise Exception("No text extracted from image")
@@ -773,3 +771,202 @@ async def check_mongodb_health():
             "error": str(e)
         }
 
+
+# =============================================================================
+# Double-Entry Accounting Endpoints
+# =============================================================================
+
+from app.api.schemas import (
+    AccountSchema, JournalEntrySchema, CreateAccountRequest,
+    TrialBalanceResponse, IncomeStatementResponse, BalanceSheetResponse
+)
+
+
+@router.get("/accounts", response_model=List[AccountSchema])
+async def get_accounts():
+    """Get all accounts in the Chart of Accounts with their current balances"""
+    try:
+        from app.services.accounting_service import get_all_accounts, initialize_chart_of_accounts
+        # Ensure chart of accounts exists
+        initialize_chart_of_accounts()
+        accounts = get_all_accounts()
+        return accounts
+    except Exception as e:
+        logger.error(f"Error getting accounts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/accounts", response_model=AccountSchema)
+async def create_account(account_data: CreateAccountRequest):
+    """Create a new account in the Chart of Accounts"""
+    try:
+        from app.services.accounting_service import get_account_by_code
+        from app.db.sql import SessionLocal, Account
+        
+        # Check if account code already exists
+        existing = get_account_by_code(account_data.code)
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Account with code {account_data.code} already exists")
+        
+        db = SessionLocal()
+        try:
+            account = Account(
+                code=account_data.code,
+                name=account_data.name,
+                account_type=account_data.account_type,
+                parent_id=account_data.parent_id,
+                description=account_data.description,
+                is_active=True
+            )
+            db.add(account)
+            db.commit()
+            db.refresh(account)
+            
+            return {
+                "id": account.id,
+                "code": account.code,
+                "name": account.name,
+                "account_type": account.account_type,
+                "parent_id": account.parent_id,
+                "description": account.description,
+                "balance": 0.0,
+                "normal_balance": "debit" if account.account_type in ["asset", "expense"] else "credit"
+            }
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating account: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/accounts/{account_id}/balance")
+async def get_account_balance(account_id: int):
+    """Get current balance for a specific account"""
+    try:
+        from app.services.accounting_service import calculate_account_balance
+        from app.db.sql import SessionLocal, Account
+        
+        db = SessionLocal()
+        try:
+            account = db.query(Account).filter(Account.id == account_id).first()
+            if not account:
+                raise HTTPException(status_code=404, detail="Account not found")
+            
+            balance = calculate_account_balance(account_id)
+            return {
+                "account_id": account_id,
+                "account_code": account.code,
+                "account_name": account.name,
+                "account_type": account.account_type,
+                "balance": balance,
+                "normal_balance": "debit" if account.account_type in ["asset", "expense"] else "credit"
+            }
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting account balance: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ledger/{record_id}/journal", response_model=JournalEntrySchema)
+async def get_ledger_journal_entry(record_id: str):
+    """Get the journal entry for a specific ledger entry"""
+    try:
+        from app.services.accounting_service import get_journal_entry_by_ledger_entry
+        from app.db.sql import SessionLocal, LedgerEntry
+        
+        db = SessionLocal()
+        try:
+            ledger = db.query(LedgerEntry).filter(LedgerEntry.record_id == record_id).first()
+            if not ledger:
+                raise HTTPException(status_code=404, detail="Ledger entry not found")
+            
+            journal = get_journal_entry_by_ledger_entry(ledger.id)
+            if not journal:
+                raise HTTPException(status_code=404, detail="No journal entry found for this ledger entry")
+            
+            return journal
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting journal entry: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/journal-entries")
+async def get_journal_entries(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=1000)
+):
+    """Get all journal entries with pagination"""
+    try:
+        from app.db.sql import SessionLocal, JournalEntry
+        from sqlalchemy.orm import joinedload
+        from app.services.accounting_service import format_journal_entry
+        
+        db = SessionLocal()
+        try:
+            entries = db.query(JournalEntry).options(
+                joinedload(JournalEntry.lines)
+            ).order_by(JournalEntry.entry_date.desc()).offset(skip).limit(limit).all()
+            
+            return [format_journal_entry(entry) for entry in entries]
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error getting journal entries: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reports/trial-balance", response_model=TrialBalanceResponse)
+async def get_trial_balance_report():
+    """Generate a Trial Balance report - sum of all debits should equal sum of all credits"""
+    try:
+        from app.services.accounting_service import get_trial_balance, initialize_chart_of_accounts
+        initialize_chart_of_accounts()
+        return get_trial_balance()
+    except Exception as e:
+        logger.error(f"Error generating trial balance: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reports/income-statement", response_model=IncomeStatementResponse)
+async def get_income_statement_report():
+    """Generate an Income Statement (Profit & Loss) report"""
+    try:
+        from app.services.accounting_service import get_income_statement, initialize_chart_of_accounts
+        initialize_chart_of_accounts()
+        return get_income_statement()
+    except Exception as e:
+        logger.error(f"Error generating income statement: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reports/balance-sheet", response_model=BalanceSheetResponse)
+async def get_balance_sheet_report():
+    """Generate a Balance Sheet report - Assets = Liabilities + Equity"""
+    try:
+        from app.services.accounting_service import get_balance_sheet, initialize_chart_of_accounts
+        initialize_chart_of_accounts()
+        return get_balance_sheet()
+    except Exception as e:
+        logger.error(f"Error generating balance sheet: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/accounts/initialize")
+async def initialize_accounts():
+    """Initialize the default Chart of Accounts"""
+    try:
+        from app.services.accounting_service import initialize_chart_of_accounts
+        initialize_chart_of_accounts()
+        return {"message": "Chart of accounts initialized successfully"}
+    except Exception as e:
+        logger.error(f"Error initializing accounts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

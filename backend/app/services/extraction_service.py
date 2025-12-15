@@ -25,6 +25,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 from app.core.llm import get_llm
 from langchain.schema import HumanMessage
+from app.utils.json_parser import parse_llm_json_response
 import json
 import asyncio
 
@@ -41,6 +42,20 @@ KEYWORDS_SUBTOTAL = ["subtotal", "sub total", "sub-total"]
 KEYWORDS_TAX = ["tax", "vat", "gst", "sales tax"]
 KEYWORDS_CASH = ["cash", "paid", "payment", "received", "cash tend"]
 KEYWORDS_CHANGE = ["change", "return", "change due"]
+
+# Japanese keywords for receipt parsing
+KEYWORDS_TOTAL_JA = ["合計", "総計", "お支払い金額", "ご請求額", "計", "お会計"]
+KEYWORDS_SUBTOTAL_JA = ["小計", "商品合計", "税抜合計"]
+KEYWORDS_TAX_JA = ["消費税", "税", "内税", "外税", "税込", "税額"]
+KEYWORDS_CASH_JA = ["現金", "お預かり", "お預り", "お預かり金額"]
+KEYWORDS_CHANGE_JA = ["お釣り", "おつり", "釣銭", "お返し"]
+
+# Combined keywords (English + Japanese)
+KEYWORDS_TOTAL_ALL = KEYWORDS_TOTAL + KEYWORDS_TOTAL_JA
+KEYWORDS_SUBTOTAL_ALL = KEYWORDS_SUBTOTAL + KEYWORDS_SUBTOTAL_JA
+KEYWORDS_TAX_ALL = KEYWORDS_TAX + KEYWORDS_TAX_JA
+KEYWORDS_CASH_ALL = KEYWORDS_CASH + KEYWORDS_CASH_JA
+KEYWORDS_CHANGE_ALL = KEYWORDS_CHANGE + KEYWORDS_CHANGE_JA
 
 # Regex patterns to extract items (quantity, name, price)
 ITEM_QTY_PATTERNS = [
@@ -287,15 +302,20 @@ async def extract_with_llm(raw_text: str) -> Dict[str, Any]:
     
     CRITICAL INSTRUCTIONS:
     1. Extract EVERY line item from the receipt - do not skip any items
-    2. Return all monetary values as STRINGS to preserve formatting (e.g., "175,000" not 175000, "16.00" not 16)
-    3. Look for patterns like "1 Item Name    16,000" or "2x Item Name $10.00" or "Item Name        $5.99"
+    2. Return all monetary values as STRINGS to preserve formatting (e.g., "175,000" not 175000, "16.00" not 16, "¥237" not 237)
+    3. Look for patterns like "1 Item Name    16,000" or "2x Item Name $10.00" or "Item Name        $5.99" or "商品名    237" (Japanese)
     4. For items with quantity at the start (e.g., "1 Ice Java Tea"), make sure quantity field is set correctly
     5. Ensure the number of items in your response matches the actual line items on the receipt
     6. DETECT CURRENCY: Look at vendor location, country, currency symbols to determine the currency
+       - Japanese receipts (業務スーパー, ¥ symbol, Japan) → currency = "JPY", exchange_rate ≈ 150
        - Indonesian receipts (MOMI, Jakarta, Indonesia) → currency = "IDR", exchange_rate ≈ 15000
        - South African receipts (SPAR, ZAR, Rand) → currency = "ZAR", exchange_rate ≈ 18
        - US receipts → currency = "USD", exchange_rate = 1
     7. CONVERT TO USD: Calculate usd_equivalent = total / exchange_rate
+    8. For Japanese receipts: Pay attention to Japanese characters (漢字, ひらがな, カタカナ) in item names
+       - Common patterns: "商品名 数量 価格" or "商品名    価格"
+       - Tax keywords: 消費税 (consumption tax), 税込 (tax included), 税抜 (tax excluded)
+       - Payment keywords: 現金 (cash), お預かり (cash received), お釣り (change)
     
     EXAMPLE FORMAT (Indonesian Receipt):
     {{
@@ -303,7 +323,6 @@ async def extract_with_llm(raw_text: str) -> Dict[str, Any]:
       "date": "26/01/2015",
       "currency": "IDR",
       "items": [
-        {{"name": "Woman", "quantity": 1, "unit_price": "0", "line_total": "0"}},
         {{"name": "Ham Cheese", "quantity": 2, "unit_price": "8,000", "line_total": "16,000"}},
         {{"name": "Ice Java Tea", "quantity": 1, "unit_price": "16,000", "line_total": "16,000"}},
         {{"name": "Mineral Water", "quantity": 1, "unit_price": "13,000", "line_total": "13,000"}}
@@ -315,7 +334,39 @@ async def extract_with_llm(raw_text: str) -> Dict[str, Any]:
       "payment_method": "CASH"
     }}
     
-    Return ONLY a valid JSON object with these fields. If a field is missing, set it to null.
+    EXAMPLE FORMAT (Japanese Receipt):
+    {{
+      "vendor": "業務スーパー河内屋",
+      "date": "2025-07-12",
+      "currency": "JPY",
+      "items": [
+        {{"name": "鶏卵赤玉MSP 10個入", "quantity": 1, "unit_price": "237", "line_total": "237"}},
+        {{"name": "マカロニ(セダニーニ) 500G", "quantity": 1, "unit_price": "138", "line_total": "138"}},
+        {{"name": "JUCOVIA(業)チェダースライスチーズ", "quantity": 2, "unit_price": "209", "line_total": "418"}},
+        {{"name": "協同牛乳酪農牛乳 1L", "quantity": 1, "unit_price": "199", "line_total": "199"}},
+        {{"name": "おかめ納豆極小粒ミニ3", "quantity": 1, "unit_price": "76", "line_total": "76"}}
+      ],
+      "subtotal": "1,068",
+      "tax": "85",
+      "total": "1,153",
+      "usd_equivalent": 7.69,
+      "exchange_rate": 150,
+      "payment_method": "CASH",
+      "cash_given": "5,000",
+      "change": "3,847"
+    }}
+    
+    CRITICAL JSON FORMATTING REQUIREMENTS:
+    - Return ONLY the JSON object, nothing else
+    - Do NOT include any explanatory text before or after the JSON
+    - Do NOT wrap the JSON in markdown code blocks
+    - Ensure all string values are properly escaped (use \" for quotes inside strings)
+    - Ensure all special characters in strings are properly escaped
+    - Do NOT include trailing commas
+    - Ensure all brackets and braces are properly closed
+    - If a field is missing, set it to null (not undefined or omitted)
+    
+    Return ONLY a valid JSON object with these fields. Start with {{ and end with }}.
     """
     
     try:
@@ -330,15 +381,12 @@ async def extract_with_llm(raw_text: str) -> Dict[str, Any]:
         )
         response_text = response.content
         
-        # Parse JSON
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0].strip()
+        # Use robust JSON parser to handle malformed responses
+        data = parse_llm_json_response(response_text, default={})
         
-        logger.debug(f"LLM response (first 500 chars): {response_text[:500]}")
-        
-        data = json.loads(response_text)
+        if not data:
+            logger.warning("Failed to parse LLM response, returning empty dict")
+            return {}
         
         # Post-process monetary values: convert strings to floats using parse_price
         if data.get('subtotal'):
@@ -361,11 +409,8 @@ async def extract_with_llm(raw_text: str) -> Dict[str, Any]:
                     item['line_total'] = parse_price(str(item['line_total']))
         
         return data
-    except json.JSONDecodeError as json_err:
-        logger.error(f"LLM JSON parsing error: {json_err} | Response: {response_text[:200]}")
-        return {}
     except Exception as e:
-        logger.error(f"LLM extraction error: {e}", exc_info=True)
+        logger.error(f"LLM extraction error: {e}")
         return {}
 
 
