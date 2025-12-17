@@ -219,10 +219,12 @@
             'px-4 py-2 rounded-xl text-sm font-bold',
             result.status === 'validated'
               ? 'bg-green-100 text-green-700'
+              : result.status === 'duplicate'
+              ? 'bg-red-100 text-red-700'
               : 'bg-yellow-100 text-yellow-700'
           ]"
         >
-          {{ result.status === 'validated' ? '✓ Validated' : '⚠ Pending Review' }}
+          {{ result.status === 'validated' ? '✓ Validated' : result.status === 'duplicate' ? '⚠ Duplicate' : '⚠ Pending Review' }}
         </span>
       </div>
 
@@ -258,6 +260,51 @@
 
         <!-- Analysis Card -->
         <div class="space-y-6">
+          <!-- Duplicate Warning -->
+          <div v-if="result.reconciliation?.is_duplicate" class="bg-red-50/50 rounded-2xl p-6 border border-red-200">
+            <h5 class="font-bold text-red-800 mb-3 flex items-center gap-2">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+              Duplicate Document Detected
+            </h5>
+            <p class="text-sm text-red-700 mb-4">
+              This document appears to be a duplicate of an existing transaction.
+              <span v-if="result.reconciliation?.duplicate_record_id" class="font-semibold">
+                Matching record: {{ result.reconciliation.duplicate_record_id }}
+              </span>
+            </p>
+            <div class="flex gap-3">
+              <button
+                @click="deleteDuplicate"
+                class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-all"
+              >
+                Delete Duplicate
+              </button>
+              <button
+                @click="keepDuplicate"
+                class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg text-sm font-medium transition-all"
+              >
+                Keep Anyway
+              </button>
+            </div>
+          </div>
+
+          <!-- Counterparty Warning -->
+          <div v-if="result.reconciliation?.is_counterparty" class="bg-blue-50/50 rounded-2xl p-6 border border-blue-200">
+            <h5 class="font-bold text-blue-800 mb-3 flex items-center gap-2">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              Counterparty Document Detected
+            </h5>
+            <p class="text-sm text-blue-700 mb-2">
+              This document appears to be the counterparty document for an existing transaction.
+            </p>
+            <div v-if="result.reconciliation?.counterparty_record_id" class="text-sm text-blue-600 bg-blue-100/50 rounded-lg p-3 mt-2">
+              <p><span class="font-semibold">Related Transaction:</span> {{ result.reconciliation.counterparty_record_id }}</p>
+              <p v-if="result.reconciliation?.counterparty_vendor" class="mt-1">
+                <span class="font-semibold">Counterparty Vendor:</span> {{ result.reconciliation.counterparty_vendor }}
+              </p>
+            </div>
+          </div>
+
           <div v-if="result.validation?.issues?.length" class="bg-yellow-50/50 rounded-2xl p-6 border border-yellow-100">
             <h5 class="font-bold text-yellow-800 mb-3 flex items-center gap-2">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
@@ -283,12 +330,71 @@
           Upload Another
         </button>
         <button
-          v-if="result.status !== 'validated'"
+          v-if="result.status !== 'validated' && result.status !== 'duplicate'"
           @click="approveEntry"
           class="flex-1 px-6 py-3 rounded-xl font-bold transition-all duration-200 bg-gray-900 text-white hover:bg-gray-800 shadow-lg shadow-gray-900/20"
         >
           Approve & Add to Ledger
         </button>
+      </div>
+    </div>
+
+    <!-- Duplicate Confirmation Modal -->
+    <div v-if="showDuplicateModal"
+      class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4 transition-all duration-300"
+      @click.self="showDuplicateModal = false">
+      <div
+        class="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl max-w-md w-full border border-white/50 overflow-hidden transform scale-100 transition-all">
+        <div class="p-8">
+          <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+              </path>
+            </svg>
+          </div>
+          <h3 class="text-2xl font-bold text-gray-900 text-center mb-3">Duplicate Document Detected</h3>
+          <p class="text-gray-600 text-center mb-6">
+            This document appears to be a duplicate of an existing transaction.
+          </p>
+          
+          <!-- Duplicate Details -->
+          <div class="bg-gray-50 rounded-xl p-4 mb-6 space-y-2">
+            <div class="flex justify-between">
+              <span class="text-sm text-gray-500">Vendor:</span>
+              <span class="text-sm font-semibold text-gray-900">{{ duplicateInfo.vendor }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-sm text-gray-500">Amount:</span>
+              <span class="text-sm font-semibold text-gray-900">${{ duplicateInfo.total.toFixed(2) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-sm text-gray-500">Date:</span>
+              <span class="text-sm font-semibold text-gray-900">{{ duplicateInfo.date }}</span>
+            </div>
+            <div v-if="duplicateInfo.duplicateRecordId" class="flex justify-between items-center pt-2 border-t border-gray-200">
+              <span class="text-sm text-gray-500">Matching Record:</span>
+              <span class="text-xs font-mono text-gray-700 bg-gray-200 px-2 py-1 rounded">{{ duplicateInfo.duplicateRecordId }}</span>
+            </div>
+          </div>
+
+          <p class="text-sm text-gray-500 text-center mb-6">
+            What would you like to do with this duplicate?
+          </p>
+
+          <div class="flex gap-3">
+            <button
+              @click="handleDeleteDuplicate"
+              class="flex-1 px-6 py-3 rounded-xl font-bold transition-all duration-200 bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-600/20">
+              Delete Duplicate
+            </button>
+            <button
+              @click="handleKeepDuplicate"
+              class="flex-1 px-6 py-3 rounded-xl font-medium transition-all duration-200 bg-gray-100 hover:bg-gray-200 text-gray-700">
+              Keep Anyway
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -318,6 +424,14 @@ const logMessages = ref([])
 const currentLogMessage = ref('')
 const currentRecordId = ref(null)
 const eventSource = ref(null)
+const showDuplicateModal = ref(false)
+const duplicateInfo = ref({
+  recordId: null,
+  duplicateRecordId: null,
+  vendor: '',
+  total: 0,
+  date: ''
+})
 
 const handleDrop = (e) => {
   isDragging.value = false
@@ -427,6 +541,22 @@ const processFiles = async (files) => {
       result.value = response.data
       batchResults.value = null
       
+      // Check for duplicate immediately after processing
+      if (result.value.reconciliation?.is_duplicate) {
+        // Show duplicate confirmation modal
+        showDuplicateModal.value = true
+        duplicateInfo.value = {
+          recordId: result.value.record_id,
+          duplicateRecordId: result.value.reconciliation.duplicate_record_id,
+          vendor: result.value.structured_data?.vendor || 'Unknown',
+          total: result.value.structured_data?.total || 0,
+          date: result.value.structured_data?.date || 'N/A'
+        }
+        // Don't show result yet - wait for user decision
+        processing.value = false
+        return
+      }
+      
       progress.value = 100
       processingMessage.value = 'Complete!'
       emit('receipt-processed', result.value)
@@ -487,6 +617,63 @@ const approveEntry = async () => {
   }
 }
 
+const handleDeleteDuplicate = async () => {
+  if (!duplicateInfo.value.recordId) return
+  
+  try {
+    // Delete the duplicate document
+    await api.deleteLedgerEntry(duplicateInfo.value.recordId)
+    
+    // Close modal and reset
+    showDuplicateModal.value = false
+    reset()
+    
+    // Show success message
+    alert('Duplicate document deleted successfully!')
+  } catch (error) {
+    console.error('Error deleting duplicate:', error)
+    alert('Error deleting duplicate: ' + (error.response?.data?.detail || error.message))
+    showDuplicateModal.value = false
+    reset()
+  }
+}
+
+const handleKeepDuplicate = async () => {
+  // User wants to keep the duplicate - just close modal and show result
+  showDuplicateModal.value = false
+  
+  // Show the result with duplicate warning
+  processing.value = false
+  progress.value = 100
+  processingMessage.value = 'Complete!'
+  emit('receipt-processed', result.value)
+}
+
+const deleteDuplicate = async () => {
+  if (!result.value?.record_id) return
+  
+  if (!confirm('Are you sure you want to delete this duplicate document? This action cannot be undone.')) {
+    return
+  }
+
+  try {
+    await api.deleteLedgerEntry(result.value.record_id)
+    alert('Duplicate document deleted successfully!')
+    reset()
+  } catch (error) {
+    console.error('Error deleting duplicate:', error)
+    alert('Error deleting duplicate: ' + (error.response?.data?.detail || error.message))
+  }
+}
+
+const keepDuplicate = async () => {
+  if (!result.value?.record_id) return
+  
+  // Just proceed with the upload - user wants to keep it
+  alert('Document will be kept. You can review it in the ledger.')
+  reset()
+}
+
 const reset = () => {
   result.value = null
   batchResults.value = null
@@ -497,6 +684,14 @@ const reset = () => {
   logMessages.value = []
   currentLogMessage.value = ''
   currentRecordId.value = null
+  showDuplicateModal.value = false
+  duplicateInfo.value = {
+    recordId: null,
+    duplicateRecordId: null,
+    vendor: '',
+    total: 0,
+    date: ''
+  }
   if (eventSource.value) {
     eventSource.value.close()
     eventSource.value = null

@@ -162,10 +162,60 @@ async def process_receipt(
             embedding = await create_embedding(raw_text)
             
             # Step 4: Check for duplicates/reconciliation
-            reconciliation = await check_duplicates(record_id, embedding)
+            reconciliation = await check_duplicates(record_id, embedding, structured_data)
+            
+            # Handle duplicate detection - if exact duplicate found, don't create ledger entry
+            if reconciliation.get("is_duplicate") and reconciliation.get("duplicate_record_id"):
+                duplicate_id = reconciliation.get("duplicate_record_id")
+                logger.warning(f"Duplicate document detected: {record_id} matches {duplicate_id}")
+                
+                # Store document but mark as duplicate
+                await store_document(record_id, structured_data, embedding, raw_text)
+                
+                # Update document with reconciliation info
+                db = get_database()
+                if db is not None:
+                    collection = db.receipts
+                    await collection.update_one(
+                        {"record_id": record_id},
+                        {"$set": {"reconciliation_info": reconciliation, "status": "duplicate"}}
+                    )
+                
+                # Return response indicating duplicate
+                return ProcessReceiptResponse(
+                    record_id=record_id,
+                    raw_text=raw_text[:500],
+                    structured_data=structured_data,
+                    embedding=embedding[:10],
+                    reconciliation=reconciliation,
+                    validation={
+                        "status": "duplicate",
+                        "issues": [f"Duplicate of existing transaction: {duplicate_id}"],
+                        "confidence": reconciliation.get("confidence", 0.0),
+                        "reasoning": "This document appears to be a duplicate of an existing transaction."
+                    },
+                    reasoning_trace={
+                        "steps": [{"step": 1, "action": "duplicate_detection", "observation": f"Found duplicate: {duplicate_id}", "conclusion": "Duplicate document"}],
+                        "final_conclusion": "Duplicate document detected",
+                        "confidence_score": reconciliation.get("confidence", 0.0)
+                    },
+                    explanation=f"This document is a duplicate of transaction {duplicate_id}. Please review and delete if not needed.",
+                    recommendations=["Review the duplicate transaction", "Delete this duplicate if it's not needed"],
+                    ledger_entry_id=None,
+                    status="duplicate"
+                )
             
             # Step 5: Store in vector DB
             await store_document(record_id, structured_data, embedding, raw_text)
+            
+            # Store reconciliation info in MongoDB
+            db = get_database()
+            if db is not None:
+                collection = db.receipts
+                await collection.update_one(
+                    {"record_id": record_id},
+                    {"$set": {"reconciliation_info": reconciliation}}
+                )
             
             # Step 6: LLM Orchestration
             orchestration_result = await orchestrate(
@@ -176,6 +226,15 @@ async def process_receipt(
             # Log validation result
             validation_status = orchestration_result["validation_result"]["status"]
             logger.info(f"Validation status: {validation_status}, Confidence: {orchestration_result['validation_result']['confidence']}")
+            
+            # Add counterparty information to recommendations if found
+            if reconciliation.get("is_counterparty"):
+                counterparty_id = reconciliation.get("counterparty_record_id")
+                counterparty_vendor = reconciliation.get("counterparty_vendor")
+                orchestration_result["recommendations"].insert(
+                    0,
+                    f"Counterparty document found: This appears to be the counterparty document for transaction {counterparty_id} (vendor: {counterparty_vendor})"
+                )
             
             # Step 7: Store in ledger (always create entry, status depends on validation)
             ledger_entry_id = None
@@ -290,7 +349,7 @@ async def process_multiple_receipts(
             embedding = await create_embedding(raw_text)
             
             # Step 4: Check for duplicates/reconciliation
-            reconciliation = await check_duplicates(record_id, embedding)
+            reconciliation = await check_duplicates(record_id, embedding, structured_data)
             
             # Step 5: Store in vector DB
             await store_document(record_id, structured_data, embedding, raw_text)
@@ -1099,4 +1158,196 @@ async def initialize_accounts():
         return {"message": "Chart of accounts initialized successfully"}
     except Exception as e:
         logger.error(f"Error initializing accounts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Reconciliation Endpoints
+# =============================================================================
+
+from app.api.schemas import ReconciliationResponse, ReconciliationMatch
+from app.services.reconciliation_service import (
+    get_reconciliation_status,
+    link_transactions
+)
+
+
+@router.get("/ledger/{record_id}/reconciliation", response_model=ReconciliationResponse)
+async def get_reconciliation(record_id: str):
+    """Get reconciliation status for a specific transaction"""
+    try:
+        from app.services.reconciliation_service import get_reconciliation_status
+        from app.db.mongodb import get_database
+        
+        db = get_database()
+        if db is None:
+            raise HTTPException(status_code=500, detail="MongoDB database not connected")
+        
+        collection = db.receipts
+        doc = await collection.find_one({"record_id": record_id})
+        
+        if not doc:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        
+        # Get reconciliation info from document or compute it
+        reconciliation_info = doc.get("reconciliation_info", {})
+        
+        # If not stored, return basic info
+        if not reconciliation_info:
+            return ReconciliationResponse(
+                is_duplicate=False,
+                is_counterparty=False,
+                match_type="none",
+                confidence=0.0,
+                matched_records=[],
+                counterparty_record=None
+            )
+        
+        # Convert to response format
+        return ReconciliationResponse(**reconciliation_info)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting reconciliation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ledger/{record_id_1}/link/{record_id_2}")
+async def link_transactions_endpoint(
+    record_id_1: str,
+    record_id_2: str,
+    relationship: str = Query(default="counterparty", description="Relationship type: counterparty, duplicate, or related")
+):
+    """Manually link two transactions"""
+    try:
+        if relationship not in ["counterparty", "duplicate", "related"]:
+            raise HTTPException(status_code=400, detail="Relationship must be one of: counterparty, duplicate, related")
+        
+        success = await link_transactions(record_id_1, record_id_2, relationship)
+        
+        if success:
+            return {
+                "message": f"Transactions {record_id_1} and {record_id_2} linked successfully",
+                "record_id_1": record_id_1,
+                "record_id_2": record_id_2,
+                "relationship": relationship
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to link transactions")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error linking transactions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ledger/{record_id}/perspective/toggle", response_model=PerspectiveAnalysisResponse)
+async def toggle_perspective(record_id: str):
+    """
+    Toggle the perspective of a transaction (swap direction, roles, and counterparty).
+    This is useful when the company name is not configured and the perspective needs manual adjustment.
+    """
+    try:
+        from app.db.mongodb import get_database
+        
+        db = get_database()
+        if db is None:
+            raise HTTPException(status_code=500, detail="MongoDB database not connected")
+        
+        collection = db.receipts
+        doc = await collection.find_one({"record_id": record_id})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Receipt document not found")
+        
+        # Get current perspective - try to get from stored perspective first, otherwise analyze
+        raw_text = doc.get("raw_text") or ""
+        structured_data = doc.get("structured_data") or {}
+        company = (settings.OUR_COMPANY_NAME or "").strip()
+        
+        # Check if perspective is stored in document
+        stored_perspective = doc.get("perspective")
+        if stored_perspective:
+            current_perspective = stored_perspective
+        else:
+            # Analyze if not stored
+            current_perspective = await analyze_perspective(
+                raw_text,
+                our_company_name=company,
+                metadata={
+                    "vendor": structured_data.get("vendor"),
+                    "total": structured_data.get("total"),
+                    "amount": structured_data.get("amount"),
+                    "payment_method": structured_data.get("payment_method"),
+                    "invoice_number": structured_data.get("invoice_number"),
+                    "currency": structured_data.get("currency"),
+                },
+            )
+        
+        # Toggle the perspective
+        new_direction = "INFLOW" if current_perspective.get("transactionDirection") == "OUTFLOW" else "OUTFLOW"
+        
+        # Swap roles
+        if new_direction == "INFLOW":
+            new_our_role = "VENDOR"
+            new_counterparty_role = "CUSTOMER"
+            new_document_role = "SALES_INVOICE"
+        else:
+            new_our_role = "BUYER"
+            new_counterparty_role = "VENDOR"
+            new_document_role = "PURCHASE_INVOICE"
+        
+        # Swap counterparty name intelligently
+        # The vendor field in structured_data typically represents the seller/issuer
+        # The counterparty in current perspective represents the other party
+        vendor_name = structured_data.get("vendor", "")
+        current_counterparty = current_perspective.get("counterpartyName", "")
+        
+        # Get ledger entry vendor for reference
+        from app.services.ledger_service import get_ledger_entry
+        ledger_entry = get_ledger_entry(record_id)
+        entry_vendor = ledger_entry.get("vendor", "") if ledger_entry else ""
+        
+        # If current direction is OUTFLOW (we are buyer), counterparty is typically the vendor/seller
+        # After toggle to INFLOW (we are vendor), counterparty should be the client/buyer
+        # If current direction is INFLOW (we are vendor), counterparty is the client/buyer
+        # After toggle to OUTFLOW (we are buyer), counterparty should be the vendor/seller
+        if current_perspective.get("transactionDirection") == "OUTFLOW":
+            # Currently we are buyer, counterparty is vendor
+            # After toggle: we are vendor, counterparty should be client
+            # The current counterparty is the vendor, so we need to find the client
+            # For vendor invoices, the client is usually in the "Client" or "Bill To" section
+            # If counterparty matches vendor, we need to find client from document
+            if current_counterparty and vendor_name and current_counterparty.lower() == vendor_name.lower():
+                # Counterparty matches vendor, need to find client
+                # Re-analyze with empty company to find client name
+                temp_perspective = await analyze_perspective(
+                    raw_text,
+                    our_company_name="",
+                    metadata=structured_data,
+                )
+                # Try to get client name from temp analysis or use a fallback
+                new_counterparty_name = temp_perspective.get("counterpartyName") or entry_vendor or "Client"
+            else:
+                # Counterparty might already be client, keep it
+                new_counterparty_name = current_counterparty or entry_vendor or vendor_name
+        else:
+            # Currently we are vendor, counterparty is client
+            # After toggle: we are buyer, counterparty should be vendor
+            # Use vendor from structured_data as the counterparty
+            new_counterparty_name = vendor_name or entry_vendor or current_counterparty
+        
+        toggled_perspective = {
+            "transactionDirection": new_direction,
+            "ourRole": new_our_role,
+            "counterpartyRole": new_counterparty_role,
+            "documentRole": new_document_role,
+            "counterpartyName": new_counterparty_name or current_perspective.get("counterpartyName", ""),
+            "confidence": current_perspective.get("confidence", 0.5)  # Keep same confidence
+        }
+        
+        return PerspectiveAnalysisResponse(**toggled_perspective)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling perspective: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

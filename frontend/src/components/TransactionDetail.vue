@@ -70,11 +70,30 @@
               {{ perspective.transactionDirection }} · {{ perspective.documentRole }}
             </p>
           </div>
-          <div v-if="perspective && perspective.confidence !== undefined" class="text-right">
-            <p class="text-xs text-gray-500">Confidence</p>
-            <p class="text-sm font-semibold text-gray-800">
-              {{ (perspective.confidence * 100).toFixed(0) }}%
-            </p>
+          <div class="flex items-center gap-4">
+            <div v-if="perspective && perspective.confidence !== undefined" class="text-right">
+              <p class="text-xs text-gray-500">Confidence</p>
+              <p class="text-sm font-semibold text-gray-800">
+                {{ (perspective.confidence * 100).toFixed(0) }}%
+              </p>
+            </div>
+            <!-- Toggle Perspective Switch -->
+            <div v-if="perspective && !perspectiveLoading" class="flex items-center gap-2" @click.stop>
+              <span class="text-xs text-gray-500">Toggle Perspective</span>
+              <button
+                type="button"
+                @click="togglePerspective"
+                :disabled="perspectiveToggling"
+                class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer z-10"
+                :class="perspective.transactionDirection === 'INFLOW' ? 'bg-blue-600' : 'bg-gray-300'"
+                title="Click to toggle transaction perspective">
+                <span
+                  class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm"
+                  :class="perspective.transactionDirection === 'INFLOW' ? 'translate-x-6' : 'translate-x-1'">
+                </span>
+              </button>
+              <span v-if="perspectiveToggling" class="text-xs text-gray-400">Toggling...</span>
+            </div>
           </div>
         </div>
 
@@ -277,6 +296,7 @@ const entry = ref(null)
 const loading = ref(false)
 const perspective = ref(null)
 const perspectiveLoading = ref(false)
+const perspectiveToggling = ref(false)
 
 const loadEntry = async () => {
   loading.value = true
@@ -304,6 +324,48 @@ const loadEntry = async () => {
     console.error('Error loading entry:', error)
   } finally {
     loading.value = false
+  }
+}
+
+const togglePerspective = async () => {
+  console.log('Toggle perspective clicked', { 
+    hasPerspective: !!perspective.value, 
+    isToggling: perspectiveToggling.value,
+    recordId: props.recordId 
+  })
+  
+  if (!perspective.value) {
+    console.warn('Cannot toggle: no perspective data')
+    return
+  }
+  
+  if (perspectiveToggling.value) {
+    console.warn('Toggle already in progress')
+    return
+  }
+  
+  perspectiveToggling.value = true
+  try {
+    console.log('Calling toggle API for record:', props.recordId)
+    const response = await api.togglePerspective(props.recordId)
+    console.log('Toggle API response:', response)
+    console.log('Response data:', response.data)
+    
+    // Update perspective with new data
+    if (response.data) {
+      perspective.value = { ...response.data }
+      console.log('Perspective updated:', perspective.value)
+    } else {
+      console.error('No data in response')
+      alert('Toggle succeeded but no data returned')
+    }
+  } catch (error) {
+    console.error('Error toggling perspective:', error)
+    console.error('Error response:', error.response)
+    console.error('Error details:', error.response?.data)
+    alert('Failed to toggle perspective: ' + (error.response?.data?.detail || error.message || 'Unknown error'))
+  } finally {
+    perspectiveToggling.value = false
   }
 }
 

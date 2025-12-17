@@ -109,6 +109,23 @@ export const api = {
   async createManualEntry(entryData) {
     return client.post('/ledger/manual', entryData)
   },
+
+  // Get reconciliation status for a transaction
+  async getReconciliation(recordId) {
+    return client.get(`/ledger/${recordId}/reconciliation`)
+  },
+
+  // Link two transactions
+  async linkTransactions(recordId1, recordId2, relationship = 'counterparty') {
+    return client.post(`/ledger/${recordId1}/link/${recordId2}`, null, {
+      params: { relationship }
+    })
+  },
+
+  // Toggle perspective for a transaction
+  async togglePerspective(recordId) {
+    return client.post(`/ledger/${recordId}/perspective/toggle`)
+  },
 }
 
 export default client

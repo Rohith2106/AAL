@@ -7,12 +7,36 @@ class ProcessReceiptRequest(BaseModel):
     ocr_engine: Optional[str] = "easyocr"
 
 
+class ReconciliationMatch(BaseModel):
+    """A matched transaction for reconciliation"""
+    record_id: str
+    vendor: Optional[str] = None
+    date: Optional[str] = None
+    total: Optional[float] = None
+    similarity: float
+    ledger_entry_id: Optional[int] = None
+    relationship: Optional[str] = None  # "duplicate", "counterparty", "related"
+
+
+class ReconciliationResponse(BaseModel):
+    """Enhanced reconciliation information"""
+    is_duplicate: bool = False
+    is_counterparty: bool = False
+    match_type: str = "none"  # "duplicate", "counterparty", "none"
+    confidence: float = 0.0
+    matched_records: List[ReconciliationMatch] = []
+    counterparty_record: Optional[ReconciliationMatch] = None
+    duplicate_record_id: Optional[str] = None
+    counterparty_record_id: Optional[str] = None
+    counterparty_vendor: Optional[str] = None
+
+
 class ProcessReceiptResponse(BaseModel):
     record_id: str
     raw_text: str
     structured_data: Dict[str, Any]
     embedding: List[float]
-    reconciliation: Dict[str, Any]
+    reconciliation: Dict[str, Any]  # Can be ReconciliationResponse or legacy format
     validation: Dict[str, Any]
     reasoning_trace: Dict[str, Any]
     explanation: str

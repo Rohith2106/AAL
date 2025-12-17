@@ -105,6 +105,7 @@
               <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('ledger.status') }}</th>
               <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('ledger.confidence') }}
               </th>
+              <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Reconciliation</th>
               <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ t('ledger.actions') }}</th>
             </tr>
           </thead>
@@ -154,6 +155,31 @@
                     }}</span>
                   </div>
                 </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                  <div class="flex items-center gap-2">
+                    <span
+                      v-if="entry.reconciliation_status === 'reconciled'"
+                      class="px-2 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-medium"
+                      title="Reconciled transaction"
+                    >
+                      ✓ Reconciled
+                    </span>
+                    <span
+                      v-else-if="entry.reconciliation_status === 'counterparty'"
+                      class="px-2 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium"
+                      title="Counterparty document"
+                    >
+                      🔗 Counterparty
+                    </span>
+                    <span
+                      v-else
+                      class="px-2 py-1 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium"
+                      title="Not reconciled"
+                    >
+                      —
+                    </span>
+                  </div>
+                </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm" @click.stop>
                   <div class="flex items-center gap-2">
                     <button @click="viewDetails(entry)"
@@ -197,7 +223,7 @@
             </tr>
 
             <tr v-if="ledgerEntries.length === 0">
-              <td colspan="8" class="px-6 py-12 text-center">
+              <td colspan="9" class="px-6 py-12 text-center">
                 <div class="flex flex-col items-center justify-center text-gray-400">
                   <svg class="w-16 h-16 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -315,6 +341,64 @@
                     </tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            <!-- Reconciliation Info -->
+            <div v-if="selectedEntry.reconciliation" class="bg-blue-50/50 rounded-2xl p-5 border border-blue-100">
+              <label class="text-xs font-bold text-blue-600 uppercase tracking-wider block mb-2">Reconciliation Status</label>
+              <div v-if="selectedEntry.reconciliation.is_counterparty" class="space-y-2">
+                <p class="text-sm text-blue-800 font-semibold">Counterparty Document</p>
+                <p v-if="selectedEntry.reconciliation.counterparty_record_id" class="text-sm text-blue-700">
+                  Related Transaction: <span class="font-mono">{{ selectedEntry.reconciliation.counterparty_record_id }}</span>
+                </p>
+                <p v-if="selectedEntry.reconciliation.counterparty_vendor" class="text-sm text-blue-700">
+                  Counterparty Vendor: {{ selectedEntry.reconciliation.counterparty_vendor }}
+                </p>
+              </div>
+              <div v-else-if="selectedEntry.reconciliation.is_duplicate" class="space-y-2">
+                <p class="text-sm text-red-800 font-semibold">Duplicate Document</p>
+                <p v-if="selectedEntry.reconciliation.duplicate_record_id" class="text-sm text-red-700">
+                  Duplicate of: <span class="font-mono">{{ selectedEntry.reconciliation.duplicate_record_id }}</span>
+                </p>
+              </div>
+              <div v-else-if="selectedEntry.reconciliation.reconciled" class="space-y-2">
+                <p class="text-sm text-green-800 font-semibold">✓ Reconciled</p>
+                <p v-if="selectedEntry.reconciliation.total_matches > 0" class="text-sm text-green-700">
+                  {{ selectedEntry.reconciliation.total_matches }} matching transaction(s) found
+                </p>
+              </div>
+              <div v-else class="text-sm text-gray-600">
+                No reconciliation matches found
+              </div>
+            </div>
+
+            <!-- Reconciliation Info -->
+            <div v-if="selectedEntry.reconciliation" class="bg-blue-50/50 rounded-2xl p-5 border border-blue-100">
+              <label class="text-xs font-bold text-blue-600 uppercase tracking-wider block mb-2">Reconciliation Status</label>
+              <div v-if="selectedEntry.reconciliation.is_counterparty" class="space-y-2">
+                <p class="text-sm text-blue-800 font-semibold">Counterparty Document</p>
+                <p v-if="selectedEntry.reconciliation.counterparty_record_id" class="text-sm text-blue-700">
+                  Related Transaction: <span class="font-mono">{{ selectedEntry.reconciliation.counterparty_record_id }}</span>
+                </p>
+                <p v-if="selectedEntry.reconciliation.counterparty_vendor" class="text-sm text-blue-700">
+                  Counterparty Vendor: {{ selectedEntry.reconciliation.counterparty_vendor }}
+                </p>
+              </div>
+              <div v-else-if="selectedEntry.reconciliation.is_duplicate" class="space-y-2">
+                <p class="text-sm text-red-800 font-semibold">Duplicate Document</p>
+                <p v-if="selectedEntry.reconciliation.duplicate_record_id" class="text-sm text-red-700">
+                  Duplicate of: <span class="font-mono">{{ selectedEntry.reconciliation.duplicate_record_id }}</span>
+                </p>
+              </div>
+              <div v-else-if="selectedEntry.reconciliation.reconciled" class="space-y-2">
+                <p class="text-sm text-green-800 font-semibold">✓ Reconciled</p>
+                <p v-if="selectedEntry.reconciliation.total_matches > 0" class="text-sm text-green-700">
+                  {{ selectedEntry.reconciliation.total_matches }} matching transaction(s) found
+                </p>
+              </div>
+              <div v-else class="text-sm text-gray-600">
+                No reconciliation matches found
               </div>
             </div>
 

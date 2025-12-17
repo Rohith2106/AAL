@@ -35,14 +35,43 @@ def _contains_company(line: str, company: str) -> bool:
 def _find_bill_to_name(lines: List[str], our_company: str) -> Optional[str]:
     """
     Try to detect the counterparty in typical invoice layouts:
-    - 'Bill To', 'Billed To', 'Customer', 'Client', 'Ship To'
+    - 'Bill To', 'Billed To', 'Customer', 'Client', 'Ship To', 'Buyer'
     The name is usually on the same line after a colon or on the next line.
+    Prioritizes explicit "Client:" or "Customer:" labels over "Bill To".
     """
+    # First, try to find explicit "Client:" or "Customer:" labels (most reliable)
+    explicit_patterns = [
+        r"^client[:\s]",
+        r"^customer[:\s]",
+        r"^buyer[:\s]",
+    ]
+    explicit_re = re.compile("|".join(explicit_patterns), re.IGNORECASE)
+    
+    for idx, line in enumerate(lines):
+        if not explicit_re.search(line):
+            continue
+
+        # Same-line name (e.g. 'Client: Becker Ltd')
+        parts = re.split(r"[:\-]", line, maxsplit=1)
+        if len(parts) == 2:
+            candidate = _normalize(parts[1])
+            if candidate and not _contains_company(candidate, our_company):
+                # Avoid lines that look like addresses only (very numeric)
+                if not re.match(r"^[\d\s,/-]+$", candidate):
+                    return candidate
+
+        # Next-line name
+        if idx + 1 < len(lines):
+            next_line = _normalize(lines[idx + 1])
+            if next_line and not _contains_company(next_line, our_company):
+                # Avoid lines that look like addresses only (very numeric)
+                if not re.match(r"^[\d\s,/-]+$", next_line):
+                    return next_line
+    
+    # Fallback to other patterns (Bill To, Ship To, etc.)
     patterns = [
         r"bill\s*to",
         r"billed\s*to",
-        r"customer",
-        r"client",
         r"ship\s*to",
         r"sold\s*to",
     ]
@@ -57,12 +86,51 @@ def _find_bill_to_name(lines: List[str], our_company: str) -> Optional[str]:
         if len(parts) == 2:
             candidate = _normalize(parts[1])
             if candidate and not _contains_company(candidate, our_company):
-                return candidate
+                # Avoid lines that look like addresses only (very numeric)
+                if not re.match(r"^[\d\s,/-]+$", candidate):
+                    return candidate
 
         # Next-line name
         if idx + 1 < len(lines):
             next_line = _normalize(lines[idx + 1])
             if next_line and not _contains_company(next_line, our_company):
+                # Avoid lines that look like addresses only (very numeric)
+                if not re.match(r"^[\d\s,/-]+$", next_line):
+                    return next_line
+
+    return None
+
+
+def _find_seller_name(lines: List[str], our_company: str) -> Optional[str]:
+    """
+    Try to detect the seller/issuer name in invoice layouts:
+    - 'Seller', 'Vendor', 'From', 'Issued By', 'Company'
+    """
+    patterns = [
+        r"^seller",
+        r"^vendor",
+        r"^from",
+        r"^issued\s*by",
+        r"^company",
+        r"^supplier",
+    ]
+    label_re = re.compile("|".join(patterns), re.IGNORECASE)
+
+    for idx, line in enumerate(lines):
+        if not label_re.search(line):
+            continue
+
+        # Same-line name (e.g. 'Seller: Andrews, Kirby and Valdez')
+        parts = re.split(r"[:\-]", line, maxsplit=1)
+        if len(parts) == 2:
+            candidate = _normalize(parts[1])
+            if candidate:
+                return candidate
+
+        # Next-line name
+        if idx + 1 < len(lines):
+            next_line = _normalize(lines[idx + 1])
+            if next_line:
                 # Avoid lines that look like addresses only (very numeric)
                 if not re.match(r"^[\d\s,/-]+$", next_line):
                     return next_line
@@ -257,11 +325,21 @@ async def analyze_perspective(
     # ------------------------------------------------------------------
     issuer_name = _guess_issuer_name(lines, metadata, our_company_name)
     bill_to_name = _find_bill_to_name(lines, our_company_name)
+    seller_name = _find_seller_name(lines, our_company_name)
+
+    # Check for explicit Seller and Client sections (vendor invoice pattern)
+    has_seller_section = any(re.search(r"^seller|^vendor", line, re.IGNORECASE) for line in lines)
+    has_client_section = any(re.search(r"^client|^customer|^buyer", line, re.IGNORECASE) for line in lines)
 
     our_in_header = any(_contains_company(line, our_company_name) for line in lines[:6])
     our_in_bill_to = any(
         _contains_company(line, our_company_name)
-        and re.search(r"bill\s*to|billed\s*to|customer|client|ship\s*to|sold\s*to", line, re.IGNORECASE)
+        and re.search(r"bill\s*to|billed\s*to|customer|client|ship\s*to|sold\s*to|buyer", line, re.IGNORECASE)
+        for line in lines
+    )
+    our_in_seller = any(
+        _contains_company(line, our_company_name)
+        and re.search(r"^seller|^vendor|^from|^issued\s*by", line, re.IGNORECASE)
         for line in lines
     )
 
@@ -283,10 +361,10 @@ async def analyze_perspective(
             # Conservative: treat as purchase
             document_role = "PURCHASE_INVOICE"
             confidence = 0.75
-        counterparty_name = issuer_name or metadata.get("vendor")
+        counterparty_name = issuer_name or seller_name or metadata.get("vendor")
 
     # Case B: Our company appears in header / seller area => we are VENDOR, INFLOW
-    elif our_in_header and not _has_pos_receipt_language(text_l):
+    elif our_in_seller or (our_in_header and not _has_pos_receipt_language(text_l)):
         direction = "INFLOW"
         if _has_invoice_language(text_l):
             document_role = "SALES_INVOICE"
@@ -298,7 +376,57 @@ async def analyze_perspective(
             # Conservative: still treat as sales invoice if we are issuer
             document_role = "SALES_INVOICE"
             confidence = 0.8
+        # When we are VENDOR, counterparty is the CLIENT/BUYER (bill_to)
+        # Make sure we get the client name, not the seller name
         counterparty_name = bill_to_name
+        # If bill_to_name is not found or seems wrong, try to find client explicitly
+        if not counterparty_name or counterparty_name == seller_name:
+            # Look for explicit Client/Customer section
+            for idx, line in enumerate(lines):
+                if re.search(r"^(client|customer|buyer)[:\s]", line, re.IGNORECASE):
+                    # Try same line extraction
+                    parts = re.split(r"[:\-]", line, maxsplit=1)
+                    if len(parts) == 2:
+                        candidate = _normalize(parts[1])
+                        if candidate and candidate != seller_name and not re.match(r"^[\d\s,/-]+$", candidate):
+                            counterparty_name = candidate
+                            break
+                    # Try next line
+                    if idx + 1 < len(lines):
+                        next_line = _normalize(lines[idx + 1])
+                        if next_line and next_line != seller_name and not re.match(r"^[\d\s,/-]+$", next_line):
+                            counterparty_name = next_line
+                            break
+
+    # Case C: Explicit Seller and Client sections detected (vendor invoice pattern)
+    # If we have both seller and client sections, and no company match, assume we are the seller
+    elif has_seller_section and has_client_section and not our_company_name:
+        direction = "INFLOW"
+        document_role = "SALES_INVOICE"
+        confidence = 0.85
+        # Client is the counterparty (buyer) - we are the seller, so counterparty is the client
+        # First try to find client name explicitly
+        counterparty_name = None
+        for idx, line in enumerate(lines):
+            # Look for "Client:" or "Customer:" labels
+            if re.search(r"^(client|customer|buyer)[:\s]", line, re.IGNORECASE):
+                # Try same line extraction (e.g., "Client: Becker Ltd")
+                parts = re.split(r"[:\-]", line, maxsplit=1)
+                if len(parts) == 2:
+                    candidate = _normalize(parts[1])
+                    if candidate and not re.match(r"^[\d\s,/-]+$", candidate):
+                        counterparty_name = candidate
+                        break
+                # Try next line
+                if idx + 1 < len(lines):
+                    next_line = _normalize(lines[idx + 1])
+                    if next_line and not re.match(r"^[\d\s,/-]+$", next_line):
+                        counterparty_name = next_line
+                        break
+        
+        # Fallback to bill_to_name if client name not found explicitly
+        if not counterparty_name:
+            counterparty_name = bill_to_name or _find_bill_to_name(lines, "")
 
     else:
         # ------------------------------------------------------------------
