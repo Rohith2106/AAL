@@ -236,3 +236,178 @@ class CreateManualEntryRequest(BaseModel):
     invoice_number: Optional[str] = None
     description: Optional[str] = None
     items: List[ManualEntryItem] = []
+
+
+# Authentication schemas
+class UserSignup(BaseModel):
+    email: str
+    password: str
+    company_name: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+# =============================================================================
+# IFRS Claim Rights Schemas
+# =============================================================================
+
+class AmortizationEntrySchema(BaseModel):
+    """Amortization entry schema"""
+    id: int
+    period_number: int
+    period_start: str
+    period_end: str
+    amount: float
+    status: str
+    posted_at: Optional[str] = None
+    journal_entry_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AmortizationScheduleSchema(BaseModel):
+    """Amortization schedule schema"""
+    id: int
+    total_periods: int
+    amount_per_period: float
+    is_generated: bool
+    generated_at: Optional[str] = None
+    entries: List[AmortizationEntrySchema] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ClaimRightSchema(BaseModel):
+    """Claim right schema"""
+    id: int
+    ledger_entry_id: Optional[int] = None
+    claim_type: str
+    description: str
+    total_amount: float
+    remaining_amount: float
+    amortized_amount: float
+    start_date: str
+    end_date: str
+    frequency: str
+    status: str
+    cancellation_date: Optional[str] = None
+    cancellation_reason: Optional[str] = None
+    created_at: str
+    schedule: Optional[AmortizationScheduleSchema] = None
+
+    @classmethod
+    def model_validate(cls, obj, **kwargs):
+        """Custom validation to handle datetime conversion and lazy loading"""
+        from datetime import datetime
+        
+        # If obj is already a dict, use it directly
+        if isinstance(obj, dict):
+            return super().model_validate(obj, **kwargs)
+        
+        # Convert ClaimRight object to dict
+        if hasattr(obj, '__dict__'):
+            data = {}
+            for key in ['id', 'ledger_entry_id', 'claim_type', 'description', 
+                       'total_amount', 'remaining_amount', 'amortized_amount',
+                       'frequency', 'status', 'cancellation_reason']:
+                if hasattr(obj, key):
+                    value = getattr(obj, key)
+                    data[key] = value
+            
+            # Convert datetime fields to strings
+            if hasattr(obj, 'start_date') and obj.start_date:
+                data['start_date'] = obj.start_date.isoformat() if isinstance(obj.start_date, datetime) else str(obj.start_date)
+            else:
+                data['start_date'] = ''
+                
+            if hasattr(obj, 'end_date') and obj.end_date:
+                data['end_date'] = obj.end_date.isoformat() if isinstance(obj.end_date, datetime) else str(obj.end_date)
+            else:
+                data['end_date'] = ''
+                
+            if hasattr(obj, 'created_at') and obj.created_at:
+                data['created_at'] = obj.created_at.isoformat() if isinstance(obj.created_at, datetime) else str(obj.created_at)
+            else:
+                data['created_at'] = ''
+                
+            if hasattr(obj, 'cancellation_date') and obj.cancellation_date:
+                data['cancellation_date'] = obj.cancellation_date.isoformat() if isinstance(obj.cancellation_date, datetime) else str(obj.cancellation_date)
+            else:
+                data['cancellation_date'] = None
+            
+            # Handle schedule relationship (may fail if lazy loaded)
+            try:
+                if hasattr(obj, 'schedule') and obj.schedule:
+                    data['schedule'] = AmortizationScheduleSchema.model_validate(obj.schedule)
+                else:
+                    data['schedule'] = None
+            except Exception:
+                # If schedule lazy loading fails, set to None
+                data['schedule'] = None
+            
+            return cls(**data)
+        
+        # Fall back to default validation
+        return super().model_validate(obj, **kwargs)
+
+    class Config:
+        from_attributes = True
+
+
+class CreateClaimRightRequest(BaseModel):
+    """Request to create a claim right"""
+    ledger_entry_id: Optional[int] = None
+    claim_type: str  # ASSET_CLAIM or LIABILITY_CLAIM
+    description: str
+    total_amount: float
+    start_date: str
+    end_date: str
+    frequency: str = "monthly"  # monthly, quarterly, yearly
+
+
+class ClaimRightSummarySchema(BaseModel):
+    """Summary of claim rights"""
+    total_claims: int
+    asset_claims: int
+    liability_claims: int
+    total_asset_amount: float
+    total_liability_amount: float
+    remaining_asset_amount: float
+    remaining_liability_amount: float
+    pending_accruals: int
+
+
+class ProcessAccrualsRequest(BaseModel):
+    """Request to process accruals"""
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+    dry_run: bool = False
+
+
+class ProcessAccrualsResponse(BaseModel):
+    """Response from processing accruals"""
+    period_start: str
+    period_end: str
+    entries_processed: int
+    total_amount: float
+    asset_claims: int
+    liability_claims: int
+    errors: List[str] = []
+    posted_entries: List[Dict[str, Any]] = []
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    company_name: Optional[str] = None
+    created_at: Optional[str] = None

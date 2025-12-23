@@ -32,7 +32,8 @@ def format_validation_issues(issues):
 def create_ledger_entry(
     record_id: str,
     structured_data: Dict[str, Any],
-    orchestration_result: Dict[str, Any]
+    orchestration_result: Dict[str, Any],
+    user_id: int
 ) -> LedgerEntry:
     """Create ledger entry from validated record"""
     db = SessionLocal()
@@ -48,6 +49,7 @@ def create_ledger_entry(
         currency = validated_currency if validated_currency else structured_data.get("currency", "USD")
         
         entry = LedgerEntry(
+            user_id=user_id,
             record_id=record_id,
             vendor=structured_data.get("vendor") or "Unknown Vendor",
             date=structured_data.get("date") or "N/A",
@@ -114,15 +116,16 @@ def create_ledger_entry(
 
 
 def get_ledger_entries(
+    user_id: int,
     skip: int = 0,
     limit: int = 100,
     status: Optional[str] = None,
     vendor: Optional[str] = None
 ) -> List[Dict[str, Any]]:
-    """Get ledger entries with filters"""
+    """Get ledger entries with filters for a specific user"""
     db = SessionLocal()
     try:
-        query = db.query(LedgerEntry)
+        query = db.query(LedgerEntry).filter(LedgerEntry.user_id == user_id)
         
         if status:
             query = query.filter(LedgerEntry.status == status)
@@ -159,13 +162,14 @@ def get_ledger_entries(
         db.close()
 
 
-def get_ledger_entry(record_id: str) -> Optional[Dict[str, Any]]:
-    """Get single ledger entry by record_id with eager loading of items"""
+def get_ledger_entry(record_id: str, user_id: int) -> Optional[Dict[str, Any]]:
+    """Get single ledger entry by record_id with eager loading of items for a specific user"""
     db = SessionLocal()
     try:
         # Use joinedload to eagerly load items relationship
         entry = db.query(LedgerEntry).options(joinedload(LedgerEntry.items)).filter(
-            LedgerEntry.record_id == record_id
+            LedgerEntry.record_id == record_id,
+            LedgerEntry.user_id == user_id
         ).first()
         
         if not entry:
@@ -213,27 +217,30 @@ def get_ledger_entry(record_id: str) -> Optional[Dict[str, Any]]:
             "created_at": entry.created_at.isoformat() if entry.created_at else None,
             "updated_at": entry.updated_at.isoformat() if entry.updated_at else None,
             "items": items_list,
-            "journal_entry": get_journal_entry_for_ledger(entry.id)
+            "journal_entry": get_journal_entry_for_ledger(entry.id, user_id)
         }
     finally:
         db.close()
 
 
-def get_journal_entry_for_ledger(ledger_entry_id: int) -> Optional[Dict[str, Any]]:
-    """Get journal entry data for a ledger entry"""
+def get_journal_entry_for_ledger(ledger_entry_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+    """Get journal entry data for a ledger entry, filtered by user_id"""
     try:
         from app.services.accounting_service import get_journal_entry_by_ledger_entry
-        return get_journal_entry_by_ledger_entry(ledger_entry_id)
+        return get_journal_entry_by_ledger_entry(ledger_entry_id, user_id=user_id)
     except Exception as e:
         logger.warning(f"Could not fetch journal entry for ledger {ledger_entry_id}: {e}")
         return None
 
 
-def update_ledger_entry_status(record_id: str, status: str):
-    """Update ledger entry status"""
+def update_ledger_entry_status(record_id: str, status: str, user_id: int):
+    """Update ledger entry status for a specific user"""
     db = SessionLocal()
     try:
-        entry = db.query(LedgerEntry).filter(LedgerEntry.record_id == record_id).first()
+        entry = db.query(LedgerEntry).filter(
+            LedgerEntry.record_id == record_id,
+            LedgerEntry.user_id == user_id
+        ).first()
         if entry:
             entry.status = status
             entry.updated_at = datetime.utcnow()
@@ -249,11 +256,14 @@ def update_ledger_entry_status(record_id: str, status: str):
         db.close()
 
 
-def delete_ledger_entry(record_id: str) -> bool:
-    """Delete ledger entry from MySQL database"""
+def delete_ledger_entry(record_id: str, user_id: int) -> bool:
+    """Delete ledger entry from MySQL database for a specific user"""
     db = SessionLocal()
     try:
-        entry = db.query(LedgerEntry).filter(LedgerEntry.record_id == record_id).first()
+        entry = db.query(LedgerEntry).filter(
+            LedgerEntry.record_id == record_id,
+            LedgerEntry.user_id == user_id
+        ).first()
         if entry:
             db.delete(entry)
             db.commit()

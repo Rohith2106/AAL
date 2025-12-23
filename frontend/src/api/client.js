@@ -4,10 +4,41 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/
 
 const client = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
 })
+
+// Add request interceptor to include auth token
+client.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      // Ensure headers object exists and merge Authorization header
+      if (!config.headers) {
+        config.headers = {}
+      }
+      // Set Authorization header with Bearer token
+      config.headers['Authorization'] = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
+// Add response interceptor to handle auth errors
+client.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('auth_token')
+      // Only redirect if we're not already on login/signup page
+      if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/signup')) {
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
 
 export const api = {
   // Process receipt (single)
@@ -18,11 +49,9 @@ export const api = {
     if (recordId) {
       params.record_id = recordId
     }
+    // Don't set Content-Type for FormData - axios will set it automatically with boundary
     return client.post('/process-receipt', formData, {
       params: params,
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
     })
   },
 
@@ -33,11 +62,9 @@ export const api = {
     for (const file of files) {
       formData.append('files', file)
     }
+    // Don't set Content-Type for FormData - axios will set it automatically with boundary
     return client.post('/process-receipts-batch', formData, {
       params: { ocr_engine: ocrEngine, language },
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
     })
   },
 
@@ -107,7 +134,11 @@ export const api = {
 
   // Create manual ledger entry
   async createManualEntry(entryData) {
-    return client.post('/ledger/manual', entryData)
+    return client.post('/ledger/manual', entryData, {
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
   },
 
   // Get reconciliation status for a transaction
@@ -126,7 +157,76 @@ export const api = {
   async togglePerspective(recordId) {
     return client.post(`/ledger/${recordId}/perspective/toggle`)
   },
+
+  // Auth endpoints
+  async login(email, password) {
+    return client.post('/auth/login', { email, password }, {
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+  },
+
+  async signup(email, password, companyName) {
+    return client.post('/auth/signup', { email, password, company_name: companyName }, {
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+  },
+
+  async getCurrentUser() {
+    return client.get('/auth/me')
+  },
+
+  // Claim Rights endpoints
+  async createClaimRight(claimRightData) {
+    return client.post('/claim-rights', claimRightData, {
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+  },
+
+  async getClaimRights(claimType = null, status = null) {
+    const params = {}
+    if (claimType) params.claim_type = claimType
+    if (status) params.status = status
+    return client.get('/claim-rights', { params })
+  },
+
+  async getClaimRight(claimRightId) {
+    return client.get(`/claim-rights/${claimRightId}`)
+  },
+
+  async cancelClaimRight(claimRightId, reason = null) {
+    const params = {}
+    if (reason) params.reason = reason
+    return client.post(`/claim-rights/${claimRightId}/cancel`, null, { params })
+  },
+
+  async getClaimRightsSummary() {
+    return client.get('/claim-rights/summary')
+  },
+
+  async processAccruals(periodStart = null, periodEnd = null, dryRun = false) {
+    return client.post('/claim-rights/process-accruals', {
+      period_start: periodStart,
+      period_end: periodEnd,
+      dry_run: dryRun
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+  },
+
+  async createClaimRightFromLedger(ledgerEntryId, claimType, startDate = null, endDate = null, frequency = 'monthly') {
+    const params = { claim_type: claimType, frequency }
+    if (startDate) params.start_date = startDate
+    if (endDate) params.end_date = endDate
+    return client.post(`/ledger/${ledgerEntryId}/create-claim-right`, null, { params })
+  },
 }
 
 export default client
-

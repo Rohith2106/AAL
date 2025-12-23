@@ -37,6 +37,10 @@ LLM_MAX_TOKENS=4096
 
 # OCR Settings (optional)
 OCR_ENGINE=tesseract
+
+# JWT Secret Key (for authentication - generate a random key for production)
+# Generate one using: python -c "import secrets; print(secrets.token_urlsafe(32))"
+SECRET_KEY=your-secret-key-change-in-production-use-a-random-string-here
 ```
 
 ## CORS_ORIGINS Format

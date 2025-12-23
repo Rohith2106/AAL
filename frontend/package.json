@@ -12,7 +12,8 @@
     "@heroicons/vue": "^2.1.5",
     "@tailwindcss/vite": "^4.1.17",
     "axios": "^1.7.7",
-    "vue": "^3.5.24"
+    "vue": "^3.5.24",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.1",

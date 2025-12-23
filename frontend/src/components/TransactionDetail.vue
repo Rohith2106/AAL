@@ -263,6 +263,14 @@
         </button>
       </div>
 
+      <!-- Create Claim Right Button -->
+      <button
+        v-if="entry.id"
+        @click="showCreateClaimRightModal = true"
+        class="w-full px-6 py-3 rounded-xl font-semibold transition-all duration-200 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20">
+        📋 Create Claim Right from Transaction
+      </button>
+
       <button @click="confirmDelete"
         class="w-full px-6 py-3 rounded-xl font-medium transition-all duration-200 bg-red-100 hover:bg-red-200 text-red-700 border border-red-200">
         {{ t('detail.delete') }}
@@ -273,6 +281,15 @@
     <div v-else class="text-center py-12 text-gray-500">
       <p class="text-lg font-medium">{{ t('detail.notFound') }}</p>
     </div>
+
+    <!-- Create Claim Right Modal -->
+    <CreateClaimRightFromTransactionModal
+      v-if="showCreateClaimRightModal && entry"
+      :ledgerEntryId="entry.id"
+      :transactionData="entry"
+      @close="showCreateClaimRightModal = false"
+      @created="handleClaimRightCreated"
+    />
   </div>
 </template>
 
@@ -280,6 +297,7 @@
 import { ref, onMounted } from 'vue'
 import { api } from '../api/client'
 import { useI18n } from '../i18n/i18n.js'
+import CreateClaimRightFromTransactionModal from './CreateClaimRightFromTransactionModal.vue'
 
 const { t } = useI18n()
 
@@ -297,6 +315,7 @@ const loading = ref(false)
 const perspective = ref(null)
 const perspectiveLoading = ref(false)
 const perspectiveToggling = ref(false)
+const showCreateClaimRightModal = ref(false)
 
 const loadEntry = async () => {
   loading.value = true
@@ -402,6 +421,11 @@ const deleteEntry = async () => {
     alert('Failed to delete transaction: ' + (error.response?.data?.detail || error.message))
     loading.value = false
   }
+}
+
+const handleClaimRightCreated = () => {
+  showCreateClaimRightModal.value = false
+  // Optionally show a success message or refresh data
 }
 
 const formatCurrency = (amount, currency = 'USD') => {

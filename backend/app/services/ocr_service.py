@@ -216,7 +216,9 @@ async def extract_text_from_image(
 
 async def extract_text_from_pdf(pdf_bytes: bytes, language: str = 'en') -> str:
     """
-    Extract text from PDF file
+    Extract text from PDF file using hybrid approach:
+    1. First tries direct text extraction (for text-based PDFs)
+    2. Falls back to OCR if direct extraction fails or returns minimal text
     
     Args:
         pdf_bytes: PDF file bytes
@@ -225,17 +227,42 @@ async def extract_text_from_pdf(pdf_bytes: bytes, language: str = 'en') -> str:
     Returns:
         Extracted text string
     """
+    import tempfile
+    import os
+    
+    # Save PDF to temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+        tmp_file.write(pdf_bytes)
+        tmp_path = tmp_file.name
+    
     try:
-        # Save PDF to temporary file
-        import tempfile
-        import os
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-            tmp_file.write(pdf_bytes)
-            tmp_path = tmp_file.name
-        
+        # Strategy 1: Try direct text extraction first (works for text-based PDFs)
         try:
-            # Convert PDF to images
+            import PyPDF2
+            direct_text_parts = []
+            with open(tmp_path, 'rb') as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                for i, page in enumerate(pdf_reader.pages):
+                    page_text = page.extract_text()
+                    if page_text.strip():
+                        direct_text_parts.append(f"--- Page {i+1} ---\n{page_text}")
+            
+            if direct_text_parts:
+                direct_text = "\n\n".join(direct_text_parts).strip()
+                # If we got substantial text (more than 50 characters), use it
+                if len(direct_text) > 50:
+                    logger.info(f"Successfully extracted text directly from PDF ({len(direct_text)} chars)")
+                    return direct_text
+                else:
+                    logger.info(f"Direct extraction returned minimal text ({len(direct_text)} chars), falling back to OCR")
+        except ImportError:
+            logger.warning("PyPDF2 not available, skipping direct text extraction")
+        except Exception as e:
+            logger.warning(f"Direct text extraction failed: {e}, falling back to OCR")
+        
+        # Strategy 2: OCR-based extraction (for scanned PDFs or when direct extraction fails)
+        try:
+            # Try to convert PDF to images using pdf2image
             images = convert_from_path(tmp_path, dpi=300)
             text_parts = []
             
@@ -246,12 +273,29 @@ async def extract_text_from_pdf(pdf_bytes: bytes, language: str = 'en') -> str:
                 text_parts.append(f"--- Page {i+1} ---\n{page_text}")
             
             return "\n\n".join(text_parts).strip()
-        finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+        except Exception as ocr_error:
+            error_msg = str(ocr_error)
+            if "poppler" in error_msg.lower() or "PDFInfoNotInstalledError" in str(type(ocr_error)):
+                # Provide helpful error message for poppler issue
+                poppler_instructions = (
+                    "Poppler is required for OCR-based PDF processing. "
+                    "To install on Windows:\n"
+                    "1. Download poppler from: https://github.com/oschwartz10612/poppler-windows/releases/\n"
+                    "2. Extract and add the 'bin' folder to your system PATH\n"
+                    "3. Restart your application\n\n"
+                    "Alternatively, ensure your PDF contains extractable text (not just images)."
+                )
+                logger.error(f"PDF OCR error: {error_msg}\n{poppler_instructions}")
+                raise Exception(f"Failed to extract text from PDF: {error_msg}\n\n{poppler_instructions}")
+            else:
+                logger.error(f"PDF OCR extraction error: {error_msg}")
+                raise Exception(f"Failed to extract text from PDF: {error_msg}")
     
-    except Exception as e:
-        logger.error(f"PDF extraction error: {e}")
-        raise Exception(f"Failed to extract text from PDF: {str(e)}")
+    finally:
+        # Clean up temp file
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 

@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # Our company configuration (used for perspective-aware analysis)
     OUR_COMPANY_NAME: Optional[str] = None
     
+    # JWT Secret Key (for HS256 algorithm - symmetric key, not public/private keys)
+    SECRET_KEY: str = "your-secret-key-change-in-production-use-a-random-string-here"
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

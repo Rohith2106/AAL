@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Optional, List, List as ListType
 import uuid
@@ -13,6 +13,11 @@ from app.api.schemas import (
     ProcessMultipleReceiptsResponse,
     CreateManualEntryRequest,
     PerspectiveAnalysisResponse,
+    ClaimRightSchema,
+    CreateClaimRightRequest,
+    ClaimRightSummarySchema,
+    ProcessAccrualsRequest,
+    ProcessAccrualsResponse,
 )
 from app.services.ocr_service import extract_text_from_image, extract_text_from_pdf
 from app.services.extraction_service import parse_receipt_text
@@ -28,6 +33,8 @@ from app.services.vector_service import find_similar_documents
 from app.db.mongodb import get_database
 from app.core.config import settings
 from app.services.perspective_service import analyze_perspective
+from app.core.deps import get_current_user
+from app.db.sql import User
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +70,8 @@ async def process_receipt(
     file: UploadFile = File(...),
     ocr_engine: str = Query(default="easyocr", description="OCR engine: tesseract or easyocr"),
     language: str = Query(default="en", description="OCR language: en (English), ja (Japanese), or en_ja (both)"),
-    record_id: Optional[str] = Query(default=None, description="Optional record ID for log streaming")
+    record_id: Optional[str] = Query(default=None, description="Optional record ID for log streaming"),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Main endpoint to process a receipt/invoice through the complete pipeline:
@@ -162,7 +170,7 @@ async def process_receipt(
             embedding = await create_embedding(raw_text)
             
             # Step 4: Check for duplicates/reconciliation
-            reconciliation = await check_duplicates(record_id, embedding, structured_data)
+            reconciliation = await check_duplicates(record_id, embedding, current_user.id, structured_data)
             
             # Handle duplicate detection - if exact duplicate found, don't create ledger entry
             if reconciliation.get("is_duplicate") and reconciliation.get("duplicate_record_id"):
@@ -170,7 +178,7 @@ async def process_receipt(
                 logger.warning(f"Duplicate document detected: {record_id} matches {duplicate_id}")
                 
                 # Store document but mark as duplicate
-                await store_document(record_id, structured_data, embedding, raw_text)
+                await store_document(record_id, structured_data, embedding, raw_text, current_user.id)
                 
                 # Update document with reconciliation info
                 db = get_database()
@@ -206,7 +214,7 @@ async def process_receipt(
                 )
             
             # Step 5: Store in vector DB
-            await store_document(record_id, structured_data, embedding, raw_text)
+            await store_document(record_id, structured_data, embedding, raw_text, current_user.id)
             
             # Store reconciliation info in MongoDB
             db = get_database()
@@ -239,14 +247,14 @@ async def process_receipt(
             # Step 7: Store in ledger (always create entry, status depends on validation)
             ledger_entry_id = None
             try:
-                ledger_entry = create_ledger_entry(record_id, structured_data, orchestration_result)
+                ledger_entry = create_ledger_entry(record_id, structured_data, orchestration_result, current_user.id)
                 ledger_entry_id = ledger_entry.id
                 logger.info(f"Ledger entry created with ID: {ledger_entry_id}, Status: {ledger_entry.status}")
                 
                 if validation_status == "valid":
-                    await update_document_status(record_id, "validated")
+                    await update_document_status(record_id, "validated", current_user.id)
                 else:
-                    await update_document_status(record_id, "pending_review")
+                    await update_document_status(record_id, "pending_review", current_user.id)
             except Exception as e:
                 logger.error(f"Error creating ledger entry: {e}", exc_info=True)
                 # Continue even if ledger entry creation fails
@@ -302,7 +310,8 @@ async def process_receipt(
 async def process_multiple_receipts(
     files: ListType[UploadFile] = File(..., description="Multiple receipt/invoice files"),
     ocr_engine: str = Query(default="easyocr", description="OCR engine: tesseract or easyocr"),
-    language: str = Query(default="en", description="OCR language: en (English), ja (Japanese), or en_ja (both)")
+    language: str = Query(default="en", description="OCR language: en (English), ja (Japanese), or en_ja (both)"),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Process multiple receipts/invoices in batch
@@ -349,10 +358,10 @@ async def process_multiple_receipts(
             embedding = await create_embedding(raw_text)
             
             # Step 4: Check for duplicates/reconciliation
-            reconciliation = await check_duplicates(record_id, embedding, structured_data)
+            reconciliation = await check_duplicates(record_id, embedding, current_user.id, structured_data)
             
             # Step 5: Store in vector DB
-            await store_document(record_id, structured_data, embedding, raw_text)
+            await store_document(record_id, structured_data, embedding, raw_text, current_user.id)
             
             # Step 6: LLM Orchestration
             orchestration_result = await orchestrate(
@@ -363,13 +372,13 @@ async def process_multiple_receipts(
             # Step 7: Store in ledger
             ledger_entry_id = None
             try:
-                ledger_entry = create_ledger_entry(record_id, structured_data, orchestration_result)
+                ledger_entry = create_ledger_entry(record_id, structured_data, orchestration_result, current_user.id)
                 ledger_entry_id = ledger_entry.id
                 validation_status = orchestration_result["validation_result"]["status"]
                 if validation_status == "valid":
-                    await update_document_status(record_id, "validated")
+                    await update_document_status(record_id, "validated", current_user.id)
                 else:
-                    await update_document_status(record_id, "pending_review")
+                    await update_document_status(record_id, "pending_review", current_user.id)
             except Exception as e:
                 logger.error(f"Error creating ledger entry: {e}", exc_info=True)
             
@@ -405,11 +414,12 @@ async def get_ledger(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=1000),
     status: Optional[str] = Query(default=None),
-    vendor: Optional[str] = Query(default=None)
+    vendor: Optional[str] = Query(default=None),
+    current_user: User = Depends(get_current_user)
 ):
     """Get ledger entries with optional filters"""
     try:
-        entries = get_ledger_entries(skip=skip, limit=limit, status=status, vendor=vendor)
+        entries = get_ledger_entries(current_user.id, skip=skip, limit=limit, status=status, vendor=vendor)
         logger.info(f"Retrieved {len(entries)} ledger entries (skip={skip}, limit={limit}, status={status})")
         return [LedgerEntryResponse(**entry) for entry in entries]
     except Exception as e:
@@ -418,9 +428,12 @@ async def get_ledger(
 
 
 @router.get("/ledger/{record_id}", response_model=LedgerEntryResponse)
-async def get_ledger_entry_by_id(record_id: str):
+async def get_ledger_entry_by_id(
+    record_id: str,
+    current_user: User = Depends(get_current_user)
+):
     """Get specific ledger entry by record_id"""
-    entry = get_ledger_entry(record_id)
+    entry = get_ledger_entry(record_id, current_user.id)
     if not entry:
         raise HTTPException(status_code=404, detail="Ledger entry not found")
     return LedgerEntryResponse(**entry)
@@ -433,6 +446,7 @@ async def get_ledger_entry_perspective(
         default=None,
         description="Override for our company name; if omitted, uses settings.OUR_COMPANY_NAME",
     ),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Analyze transaction perspective (direction, roles, counterparty) for a given record.
@@ -446,7 +460,7 @@ async def get_ledger_entry_perspective(
         raise HTTPException(status_code=500, detail="MongoDB database not connected")
 
     collection = db.receipts
-    doc = await collection.find_one({"record_id": record_id})
+    doc = await collection.find_one({"record_id": record_id, "user_id": current_user.id})
     if not doc:
         raise HTTPException(status_code=404, detail="Receipt document not found")
 
@@ -476,7 +490,7 @@ async def get_ledger_entry_perspective(
         embedding = doc.get("embedding") or []
         if embedding:
             # Use same helper as other parts of the system
-            similar_docs = await find_similar_documents(embedding, threshold=0.95, limit=5)
+            similar_docs = await find_similar_documents(embedding, current_user.id, threshold=0.95, limit=5)
             # Exclude self
             similar_docs = [d for d in similar_docs if d.get("record_id") != record_id]
 
@@ -531,13 +545,17 @@ async def get_ledger_entry_perspective(
 
 
 @router.put("/ledger/{record_id}/status")
-async def update_ledger_entry_status_endpoint(record_id: str, status: str = Query(..., description="New status: validated, pending, or rejected")):
+async def update_ledger_entry_status_endpoint(
+    record_id: str,
+    status: str = Query(..., description="New status: validated, pending, or rejected"),
+    current_user: User = Depends(get_current_user)
+):
     """Update ledger entry status"""
     try:
         if status not in ["validated", "pending", "rejected"]:
             raise HTTPException(status_code=400, detail="Status must be one of: validated, pending, rejected")
         
-        entry = get_ledger_entry(record_id)
+        entry = get_ledger_entry(record_id, current_user.id)
         if not entry:
             raise HTTPException(status_code=404, detail="Ledger entry not found")
         
@@ -574,18 +592,21 @@ async def update_ledger_entry_status_endpoint(record_id: str, status: str = Quer
 
 
 @router.post("/ledger/{record_id}/approve")
-async def approve_ledger_entry(record_id: str):
+async def approve_ledger_entry(
+    record_id: str,
+    current_user: User = Depends(get_current_user)
+):
     """Approve a pending ledger entry (deprecated - use PUT /ledger/{record_id}/status instead)"""
     try:
-        entry = get_ledger_entry(record_id)
+        entry = get_ledger_entry(record_id, current_user.id)
         if not entry:
             raise HTTPException(status_code=404, detail="Ledger entry not found")
         
         if entry["status"] == "pending":
             # Create ledger entry if not exists
             # This would require fetching the original structured data
-            update_ledger_entry_status(record_id, "validated")
-            await update_document_status(record_id, "validated")
+            update_ledger_entry_status(record_id, "validated", current_user.id)
+            await update_document_status(record_id, "validated", current_user.id)
             return {"message": "Entry approved and validated"}
         else:
             return {"message": f"Entry already {entry['status']}"}
@@ -595,20 +616,23 @@ async def approve_ledger_entry(record_id: str):
 
 
 @router.delete("/ledger/{record_id}")
-async def delete_ledger_entry_endpoint(record_id: str):
+async def delete_ledger_entry_endpoint(
+    record_id: str,
+    current_user: User = Depends(get_current_user)
+):
     """Delete a ledger entry from both MySQL and MongoDB vector database"""
     try:
-        entry = get_ledger_entry(record_id)
+        entry = get_ledger_entry(record_id, current_user.id)
         if not entry:
             raise HTTPException(status_code=404, detail="Ledger entry not found")
         
         # Delete from MySQL
-        mysql_deleted = delete_ledger_entry(record_id)
+        mysql_deleted = delete_ledger_entry(record_id, current_user.id)
         
         # Delete from MongoDB vector DB
-        mongo_exists = await document_exists(record_id)
+        mongo_exists = await document_exists(record_id, current_user.id)
         if mongo_exists:
-            mongo_deleted = await delete_document(record_id)
+            mongo_deleted = await delete_document(record_id, current_user.id)
         else:
             logger.info(f"Document {record_id} does not exist in MongoDB, skipping MongoDB deletion")
             mongo_deleted = False
@@ -669,7 +693,7 @@ async def chat_with_ledger(message: ChatMessage):
         
         # Get ledger summary if no specific record
         if not message.record_id:
-            ledger_entries = get_ledger_entries(limit=10)
+            ledger_entries = get_ledger_entries(current_user.id, limit=10)
             if ledger_entries:
                 context += "\n\nRecent Ledger Entries:\n"
                 for entry in ledger_entries[:5]:
@@ -699,10 +723,10 @@ Provide a helpful, accurate answer based on the context. If the information is n
 
 
 @router.get("/stats")
-async def get_stats():
+async def get_stats(current_user: User = Depends(get_current_user)):
     """Get statistics about the ledger"""
     try:
-        entries = get_ledger_entries(limit=10000)
+        entries = get_ledger_entries(current_user.id, limit=10000)
         
         total_entries = len(entries)
         # Use USD totals for aggregation to handle multi-currency
@@ -802,7 +826,10 @@ Return ONLY the JSON object, no additional text."""
 
 
 @router.post("/ledger/manual", response_model=LedgerEntryResponse)
-async def create_manual_entry(entry_data: CreateManualEntryRequest):
+async def create_manual_entry(
+    entry_data: CreateManualEntryRequest,
+    current_user: User = Depends(get_current_user)
+):
     """
     Create a manual ledger entry without OCR processing
     """
@@ -914,10 +941,10 @@ Use realistic current exchange rates."""
         }
         
         # Create ledger entry
-        ledger_entry = create_ledger_entry(record_id, structured_data, orchestration_result)
+        ledger_entry = create_ledger_entry(record_id, structured_data, orchestration_result, current_user.id)
         
         # Get the created entry with items
-        entry_dict = get_ledger_entry(record_id)
+        entry_dict = get_ledger_entry(record_id, current_user.id)
         if not entry_dict:
             raise HTTPException(status_code=500, detail="Failed to retrieve created entry")
         
@@ -1255,7 +1282,7 @@ async def toggle_perspective(record_id: str):
             raise HTTPException(status_code=500, detail="MongoDB database not connected")
         
         collection = db.receipts
-        doc = await collection.find_one({"record_id": record_id})
+        doc = await collection.find_one({"record_id": record_id, "user_id": current_user.id})
         if not doc:
             raise HTTPException(status_code=404, detail="Receipt document not found")
         
@@ -1304,7 +1331,7 @@ async def toggle_perspective(record_id: str):
         
         # Get ledger entry vendor for reference
         from app.services.ledger_service import get_ledger_entry
-        ledger_entry = get_ledger_entry(record_id)
+        ledger_entry = get_ledger_entry(record_id, current_user.id)
         entry_vendor = ledger_entry.get("vendor", "") if ledger_entry else ""
         
         # If current direction is OUTFLOW (we are buyer), counterparty is typically the vendor/seller
@@ -1350,4 +1377,303 @@ async def toggle_perspective(record_id: str):
         raise
     except Exception as e:
         logger.error(f"Error toggling perspective: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# IFRS Claim Rights Endpoints
+# =============================================================================
+
+@router.post("/claim-rights", response_model=ClaimRightSchema)
+async def create_claim_right_endpoint(
+    request: CreateClaimRightRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Create a claim right for a long-term transaction.
+    Initial recognition: Creates balance sheet item only (no P&L impact).
+    """
+    try:
+        from app.services.claim_right_service import create_claim_right
+        from datetime import datetime
+        
+        start_date = datetime.fromisoformat(request.start_date.replace("Z", "+00:00"))
+        end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
+        
+        claim = create_claim_right(
+            user_id=current_user.id,
+            ledger_entry_id=request.ledger_entry_id,
+            structured_data={},  # Can be enhanced to pass structured data
+            claim_type=request.claim_type,
+            total_amount=request.total_amount,
+            start_date=start_date,
+            end_date=end_date,
+            frequency=request.frequency,
+            description=request.description
+        )
+        
+        # Reload claim with schedule relationship to avoid lazy loading issues
+        from app.db.sql import SessionLocal, ClaimRight
+        from sqlalchemy.orm import joinedload
+        db = SessionLocal()
+        try:
+            claim_with_schedule = db.query(ClaimRight).options(
+                joinedload(ClaimRight.schedule)
+            ).filter(ClaimRight.id == claim.id).first()
+            if claim_with_schedule:
+                return ClaimRightSchema.model_validate(claim_with_schedule)
+            return ClaimRightSchema.model_validate(claim)
+        finally:
+            db.close()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error creating claim right: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/claim-rights", response_model=List[ClaimRightSchema])
+async def get_claim_rights_endpoint(
+    claim_type: Optional[str] = Query(None, description="Filter by claim type: ASSET_CLAIM or LIABILITY_CLAIM"),
+    status: Optional[str] = Query(None, description="Filter by status: active, completed, cancelled"),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all claim rights for the current user."""
+    try:
+        from app.services.claim_right_service import get_claim_rights
+        
+        from app.db.sql import SessionLocal, ClaimRight
+        from sqlalchemy.orm import joinedload
+        
+        # Eagerly load schedule to avoid lazy loading issues
+        db = SessionLocal()
+        try:
+            query = db.query(ClaimRight).options(
+                joinedload(ClaimRight.schedule)
+            ).filter(ClaimRight.user_id == current_user.id)
+            
+            if claim_type:
+                query = query.filter(ClaimRight.claim_type == claim_type)
+            if status:
+                query = query.filter(ClaimRight.status == status)
+            
+            claims = query.order_by(ClaimRight.created_at.desc()).limit(100).all()
+            
+            return [ClaimRightSchema.model_validate(claim) for claim in claims]
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error getting claim rights: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/claim-rights/{claim_right_id}", response_model=ClaimRightSchema)
+async def get_claim_right_endpoint(
+    claim_right_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    """Get a specific claim right by ID."""
+    try:
+        from app.db.sql import SessionLocal, ClaimRight
+        from sqlalchemy.orm import joinedload
+        
+        # Eagerly load schedule to avoid lazy loading issues
+        db = SessionLocal()
+        try:
+            claim = db.query(ClaimRight).options(
+                joinedload(ClaimRight.schedule)
+            ).filter(
+                ClaimRight.id == claim_right_id,
+                ClaimRight.user_id == current_user.id
+            ).first()
+            
+            if not claim:
+                raise HTTPException(status_code=404, detail="Claim right not found")
+            
+            return ClaimRightSchema.model_validate(claim)
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting claim right: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/claim-rights/{claim_right_id}/cancel")
+async def cancel_claim_right_endpoint(
+    claim_right_id: int,
+    reason: Optional[str] = Query(None, description="Cancellation reason"),
+    current_user: User = Depends(get_current_user)
+):
+    """Cancel a claim right (early termination)."""
+    try:
+        from app.services.claim_right_service import cancel_claim_right
+        
+        claim = cancel_claim_right(claim_right_id, current_user.id, reason)
+        return {"message": "Claim right cancelled successfully", "claim_right": ClaimRightSchema.from_orm(claim)}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error cancelling claim right: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/claim-rights/summary", response_model=ClaimRightSummarySchema)
+async def get_claim_rights_summary_endpoint(
+    current_user: User = Depends(get_current_user)
+):
+    """Get summary of claim rights for the current user."""
+    try:
+        from app.services.accrual_engine_service import get_claim_right_summary
+        
+        summary = get_claim_right_summary(current_user.id)
+        return ClaimRightSummarySchema(**summary)
+    except Exception as e:
+        logger.error(f"Error getting claim rights summary: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/claim-rights/process-accruals", response_model=ProcessAccrualsResponse)
+async def process_accruals_endpoint(
+    request: ProcessAccrualsRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Process pending accruals for a given accounting period.
+    This is the core accrual engine that recognizes revenue/expense over time.
+    """
+    try:
+        from app.services.accrual_engine_service import process_accruals_for_period
+        from datetime import datetime
+        
+        period_start = None
+        period_end = None
+        
+        if request.period_start:
+            period_start = datetime.fromisoformat(request.period_start.replace("Z", "+00:00"))
+        if request.period_end:
+            period_end = datetime.fromisoformat(request.period_end.replace("Z", "+00:00"))
+        
+        result = process_accruals_for_period(
+            user_id=current_user.id,
+            period_start=period_start,
+            period_end=period_end,
+            dry_run=request.dry_run
+        )
+        
+        return ProcessAccrualsResponse(**result)
+    except Exception as e:
+        logger.error(f"Error processing accruals: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ledger/{ledger_entry_id}/create-claim-right", response_model=ClaimRightSchema)
+async def create_claim_right_from_ledger(
+    ledger_entry_id: int,
+    claim_type: str = Query(..., description="ASSET_CLAIM or LIABILITY_CLAIM"),
+    start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
+    end_date: Optional[str] = Query(None, description="End date (ISO format)"),
+    frequency: str = Query("monthly", description="Frequency: monthly, quarterly, yearly"),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Automatically create a claim right from an existing ledger entry.
+    Uses classification logic to determine if transaction qualifies.
+    """
+    try:
+        from app.services.claim_right_service import (
+            classify_claim_right, create_claim_right, extract_period_dates
+        )
+        from app.services.ledger_service import get_ledger_entry
+        from datetime import datetime
+        
+        # Get ledger entry by ID
+        from app.db.sql import SessionLocal, LedgerEntry
+        db = SessionLocal()
+        try:
+            entry = db.query(LedgerEntry).filter(
+                LedgerEntry.id == ledger_entry_id,
+                LedgerEntry.user_id == current_user.id
+            ).first()
+            if not entry:
+                raise HTTPException(status_code=404, detail="Ledger entry not found")
+            ledger_entry_dict = {
+                "id": entry.id,
+                "description": entry.description,
+                "category": entry.category,
+                "vendor": entry.vendor,
+                "total": entry.total,
+                "date": entry.date
+            }
+        finally:
+            db.close()
+        
+        if not ledger_entry_dict:
+            raise HTTPException(status_code=404, detail="Ledger entry not found")
+        
+        # Build structured data from ledger entry
+        structured_data = {
+            "description": ledger_entry_dict.get("description", ""),
+            "category": ledger_entry_dict.get("category", ""),
+            "vendor": ledger_entry_dict.get("vendor", ""),
+            "total": ledger_entry_dict.get("total", 0.0),
+            "date": ledger_entry_dict.get("date", "")
+        }
+        
+        # Classify if not provided
+        if not claim_type:
+            claim_type = classify_claim_right(structured_data)
+            if not claim_type:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Transaction does not qualify as a long-term claim right"
+                )
+        
+        # Extract dates
+        if not start_date or not end_date:
+            extracted_start, extracted_end = extract_period_dates(structured_data)
+            if not extracted_start or not extracted_end:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not determine start/end dates. Please provide them explicitly."
+                )
+            start_date_obj = extracted_start
+            end_date_obj = extracted_end
+        else:
+            start_date_obj = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+            end_date_obj = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+        
+        # Create claim right
+        claim = create_claim_right(
+            user_id=current_user.id,
+            ledger_entry_id=ledger_entry_id,
+            structured_data=structured_data,
+            claim_type=claim_type,
+            total_amount=ledger_entry_dict.get("total", 0.0),
+            start_date=start_date_obj,
+            end_date=end_date_obj,
+            frequency=frequency,
+            description=structured_data.get("description", f"Claim right from ledger entry {ledger_entry_id}")
+        )
+        
+        # Reload claim with schedule relationship to avoid lazy loading issues
+        from app.db.sql import SessionLocal, ClaimRight
+        from sqlalchemy.orm import joinedload
+        db = SessionLocal()
+        try:
+            claim_with_schedule = db.query(ClaimRight).options(
+                joinedload(ClaimRight.schedule)
+            ).filter(ClaimRight.id == claim.id).first()
+            if claim_with_schedule:
+                return ClaimRightSchema.model_validate(claim_with_schedule)
+            return ClaimRightSchema.model_validate(claim)
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error creating claim right from ledger: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

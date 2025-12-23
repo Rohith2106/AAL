@@ -30,7 +30,8 @@ async def store_document(
     record_id: str,
     structured_data: Dict[str, Any],
     embedding: List[float],
-    raw_text: str
+    raw_text: str,
+    user_id: int
 ) -> str:
     """
     Store document in MongoDB vector database
@@ -45,6 +46,7 @@ async def store_document(
     
     document = {
         "record_id": record_id,
+        "user_id": user_id,
         "structured_data": structured_data,
         "embedding": embedding,
         "raw_text": raw_text,
@@ -58,14 +60,16 @@ async def store_document(
 
 async def find_similar_documents(
     embedding: List[float],
+    user_id: int,
     threshold: float = 0.7,
     limit: int = 5
 ) -> List[Dict[str, Any]]:
     """
-    Find similar documents using cosine similarity
+    Find similar documents using cosine similarity for a specific user
     
     Args:
         embedding: Query embedding vector
+        user_id: User ID to filter documents
         threshold: Similarity threshold (0-1)
         limit: Maximum number of results
     
@@ -78,8 +82,8 @@ async def find_similar_documents(
     
     collection = db.receipts
     
-    # Get all documents
-    all_docs = await collection.find({"status": {"$ne": "deleted"}}).to_list(length=1000)
+    # Get all documents for this user
+    all_docs = await collection.find({"user_id": user_id, "status": {"$ne": "deleted"}}).to_list(length=1000)
     
     if not all_docs:
         return []
@@ -116,15 +120,17 @@ async def find_similar_documents(
 async def check_duplicates(
     record_id: str,
     embedding: List[float],
+    user_id: int,
     structured_data: Optional[Dict[str, Any]] = None,
     threshold: float = 0.95
 ) -> Dict[str, Any]:
     """
-    Check for duplicate receipts and counterparty documents
+    Check for duplicate receipts and counterparty documents for a specific user
     
     Args:
         record_id: Current record ID
         embedding: Document embedding vector
+        user_id: User ID to filter documents
         structured_data: Structured data from current document (for matching logic)
         threshold: Similarity threshold for exact duplicates
     
@@ -138,7 +144,7 @@ async def check_duplicates(
         - match_type: "duplicate", "counterparty", or "none"
     """
     # Find similar documents with lower threshold to catch counterparties
-    similar = await find_similar_documents(embedding, threshold=0.7, limit=20)
+    similar = await find_similar_documents(embedding, user_id, threshold=0.7, limit=20)
     
     # Filter out self
     similar = [s for s in similar if s["record_id"] != record_id]
@@ -240,8 +246,8 @@ async def check_duplicates(
     }
 
 
-async def update_document_status(record_id: str, status: str) -> bool:
-    """Update document status in MongoDB"""
+async def update_document_status(record_id: str, status: str, user_id: int) -> bool:
+    """Update document status in MongoDB for a specific user"""
     db = get_database()
     if db is None:
         logger.warning("MongoDB database not connected, cannot update document status")
@@ -250,7 +256,7 @@ async def update_document_status(record_id: str, status: str) -> bool:
     try:
         collection = db.receipts
         result = await collection.update_one(
-            {"record_id": record_id},
+            {"record_id": record_id, "user_id": user_id},
             {"$set": {"status": status, "updated_at": datetime.utcnow()}}
         )
         
@@ -268,22 +274,22 @@ async def update_document_status(record_id: str, status: str) -> bool:
         return False
 
 
-async def document_exists(record_id: str) -> bool:
-    """Check if a document exists in MongoDB"""
+async def document_exists(record_id: str, user_id: int) -> bool:
+    """Check if a document exists in MongoDB for a specific user"""
     db = get_database()
     if db is None:
         return False
     try:
         collection = db.receipts
-        count = await collection.count_documents({"record_id": record_id})
+        count = await collection.count_documents({"record_id": record_id, "user_id": user_id})
         return count > 0
     except Exception as e:
         logger.error(f"Error checking document existence: {e}", exc_info=True)
         return False
 
 
-async def delete_document(record_id: str) -> bool:
-    """Delete document from MongoDB vector database"""
+async def delete_document(record_id: str, user_id: int) -> bool:
+    """Delete document from MongoDB vector database for a specific user"""
     db = get_database()
     if db is None:
         logger.warning("MongoDB database not connected, cannot delete document")
@@ -293,12 +299,12 @@ async def delete_document(record_id: str) -> bool:
         collection = db.receipts
         
         # First check if document exists
-        exists = await document_exists(record_id)
+        exists = await document_exists(record_id, user_id)
         if not exists:
             logger.warning(f"Document {record_id} not found in MongoDB for deletion")
             return False
         
-        result = await collection.delete_one({"record_id": record_id})
+        result = await collection.delete_one({"record_id": record_id, "user_id": user_id})
         
         if result.deleted_count > 0:
             logger.info(f"Deleted document {record_id} from MongoDB (deleted_count: {result.deleted_count})")

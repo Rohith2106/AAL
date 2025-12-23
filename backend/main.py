@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from app.core.config import settings
 from app.api.routes import router
+from app.api.auth import router as auth_router
 from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from app.db.sql import init_db
 
@@ -35,6 +36,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth_router, prefix="/api/v1")
 app.include_router(router, prefix="/api/v1")
 
 

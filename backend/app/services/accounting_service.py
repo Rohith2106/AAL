@@ -72,11 +72,13 @@ DEFAULT_ACCOUNTS = [
     {"code": "1100", "name": "Cash", "account_type": "asset", "parent_id": "1000"},
     {"code": "1200", "name": "Accounts Receivable", "account_type": "asset", "parent_id": "1000"},
     {"code": "1300", "name": "Petty Cash", "account_type": "asset", "parent_id": "1000"},
+    {"code": "1400", "name": "Prepaid Expenses", "account_type": "asset", "parent_id": "1000"},
     
     # Liabilities (2000s)
     {"code": "2000", "name": "Liabilities", "account_type": "liability", "parent_id": None},
     {"code": "2100", "name": "Accounts Payable", "account_type": "liability", "parent_id": "2000"},
     {"code": "2200", "name": "Credit Card Payable", "account_type": "liability", "parent_id": "2000"},
+    {"code": "2400", "name": "Deferred Revenue", "account_type": "liability", "parent_id": "2000"},
     
     # Equity (3000s)
     {"code": "3000", "name": "Equity", "account_type": "equity", "parent_id": None},
@@ -218,8 +220,19 @@ def create_journal_entry(
         if abs(total_debits - total_credits) > 0.01:  # Allow small rounding errors
             raise ValueError(f"Journal entry not balanced: debits={total_debits}, credits={total_credits}")
         
+        # Get user_id from ledger_entry if provided
+        user_id = None
+        if ledger_entry_id:
+            ledger_entry = db.query(LedgerEntry).filter(LedgerEntry.id == ledger_entry_id).first()
+            if ledger_entry:
+                user_id = ledger_entry.user_id
+        
+        if user_id is None:
+            raise ValueError("user_id is required. Provide it directly or via ledger_entry_id")
+        
         # Create journal entry
         journal_entry = JournalEntry(
+            user_id=user_id,
             ledger_entry_id=ledger_entry_id,
             entry_date=entry_date,
             reference=reference,
@@ -329,8 +342,9 @@ def auto_generate_journal_entry(ledger_entry: LedgerEntry, category: Optional[st
             "description": f"Payment for {ledger_entry.vendor or 'transaction'}"
         })
         
-        # Create the journal entry
+        # Create the journal entry with user_id from ledger_entry
         journal_entry = JournalEntry(
+            user_id=ledger_entry.user_id,
             ledger_entry_id=ledger_entry.id,
             entry_date=entry_date,
             reference=ledger_entry.record_id,
@@ -383,13 +397,38 @@ def get_journal_entry(journal_entry_id: int) -> Optional[Dict[str, Any]]:
         db.close()
 
 
-def get_journal_entry_by_ledger_entry(ledger_entry_id: int) -> Optional[Dict[str, Any]]:
-    """Get journal entry for a specific ledger entry"""
+def get_journal_entry_by_ledger_entry(ledger_entry_id: int, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """Get journal entry for a specific ledger entry, optionally filtered by user_id"""
     db = SessionLocal()
     try:
-        entry = db.query(JournalEntry).options(
-            joinedload(JournalEntry.lines).joinedload(JournalEntryLine.account)
-        ).filter(JournalEntry.ledger_entry_id == ledger_entry_id).first()
+        # Try with eager loading first
+        try:
+            query = db.query(JournalEntry).options(
+                joinedload(JournalEntry.lines).joinedload(JournalEntryLine.account)
+            ).filter(JournalEntry.ledger_entry_id == ledger_entry_id)
+            
+            # Filter by user_id if provided (for security)
+            if user_id is not None:
+                query = query.filter(JournalEntry.user_id == user_id)
+            
+            entry = query.first()
+        except Exception as e:
+            # If eager loading fails (e.g., missing user_id column in accounts), try without it
+            logger.warning(f"Eager loading failed, retrying without account join: {e}")
+            query = db.query(JournalEntry).options(
+                joinedload(JournalEntry.lines)
+            ).filter(JournalEntry.ledger_entry_id == ledger_entry_id)
+            
+            if user_id is not None:
+                query = query.filter(JournalEntry.user_id == user_id)
+            
+            entry = query.first()
+            
+            # Manually load accounts if needed
+            if entry:
+                for line in entry.lines:
+                    if line.account_id:
+                        line.account = db.query(Account).filter(Account.id == line.account_id).first()
         
         if not entry:
             return None
